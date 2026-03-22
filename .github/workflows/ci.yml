@@ -1,0 +1,29 @@
+name: CI Pipeline
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  building:
+    name: Building
+    runs-on: ubuntu-latest
+    steps:
+      - &checkout_step
+        name: Checkout repository
+        uses: actions/checkout@v4
+      - &install_step
+        name: Install requirements
+        run: ./scripts/install_requirements.sh
+      - name: Build
+        run: ./scripts/build.sh
+
+  testing:
+    name: Testing
+    runs-on: ubuntu-latest
+    needs: building
+    steps:
+      - *checkout_step
+      - *install_step
+      - name: Test
+        run: ./scripts/test.sh
