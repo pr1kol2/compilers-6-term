@@ -1,0 +1,14 @@
+fun main () : unit =
+  let
+    val x = ref 10
+    val y = ref 0
+  in
+    while !x > 0 do (
+      y := !y + !x;
+      x := !x - 1
+    );
+    if !y > 50 then
+      print (!y)
+    else
+      print 0
+  end

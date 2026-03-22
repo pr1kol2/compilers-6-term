@@ -1,0 +1,26 @@
+---
+Checks: >
+  -*,
+  google-*,
+  bugprone-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  cppcoreguidelines-*,
+  -readability-identifier-length,
+  -modernize-use-trailing-return-type
+
+CheckOptions:
+  - key:             HeaderFilterRegex
+    value:           '.*'
+  - key:             modernize-use-using.IgnoreMacros
+    value:           'true'
+  - key:             readability-identifier-naming.ClassCase
+    value:           PascalCase
+  - key:             readability-identifier-naming.FunctionCase
+    value:           camelBack
+  - key:             readability-identifier-naming.VariableCase
+    value:           snake_case
+  - key:             readability-function-cognitive-complexity.Threshold
+    value:           '30'
+---
