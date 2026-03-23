@@ -4,40 +4,22 @@
 Program                    ::= FunctionDeclaration
 
 FunctionDeclaration        ::= 'fun' Identifier '(' ')' ':' Type '='
-                               LetExpression
+                               Expression
 
-LetExpression              ::= 'let' Declaration*
-                               'in'  Statement (';' Statement)*
+LetExpression              ::= 'let' (Declaration (';' Declaration)*)?
+                               'in'  Expression (';' Expression)*
                                'end'
 
-Declaration                ::= 'val' Identifier '=' 'ref' Expression ';'
+Declaration                ::= 'val' Identifier '=' 'ref' Expression
 
 
-Statement                  ::= AssignStatement
-                             | IfStatement
-                             | WhileStatement
-                             | PrintStatement
+Expression                 ::= AssignExpression
 
-AssignStatement            ::= Identifier ':=' Expression
+AssignExpression           ::= DisjunctionExpression (':=' DisjunctionExpression)*
 
-IfStatement                ::= 'if'    Expression
-                               'then'  '(' Statement (';' Statement)* ')'
-                               'else'  '(' Statement (';' Statement)* ')'
+DisjunctionExpression      ::= ConjunctionExpression ('orelse' DisjunctionExpression)?
 
-WhileStatement             ::= 'while' Expression
-                               'do'    '(' Statement (';' Statement)* ')'
-
-PrintStatement             ::= 'print' '(' Expression ')'
-
-
-Expression                 ::= DisjunctionExpression
-
-DisjunctionExpression      ::= ConjunctionExpression ('orelse'  ConjunctionExpression)*
-
-ConjunctionExpression      ::= NegationExpression    ('andalso' NegationExpression)*
-
-NegationExpression         ::= 'not' NegationExpression
-                             | ComparisonExpression
+ConjunctionExpression      ::= ComparisonExpression  ('andalso' ConjunctionExpression)?
 
 ComparisonExpression       ::= AdditiveExpression (ComparisonOperator AdditiveExpression)?
 
@@ -45,28 +27,44 @@ AdditiveExpression         ::= MultiplicativeExpression (AdditiveOperator Multip
 
 MultiplicativeExpression   ::= UnaryExpression (MultiplicativeOperator UnaryExpression)*
 
-UnaryExpression            ::= '~' UnaryExpression
-                             | '!' AtomicExpression
+UnaryExpression            ::= 'not' UnaryExpression
+                             | '~'   UnaryExpression
+                             | '!'   AtomicExpression
                              | AtomicExpression
 
 AtomicExpression           ::= IntegerConstant
                              | BooleanConstant
                              | Identifier
-                             | '(' Expression ')'
+                             | IfExpression
+                             | WhileExpression
+                             | PrintExpression
+                             | ParenthesizedExpression
+                             | SequenceExpression
+                             | LetExpression
+
+IfExpression               ::= 'if'    Expression
+                               'then'  Expression
+                               'else'  Expression
+
+WhileExpression            ::= 'while' Expression
+                               'do'    Expression
+
+PrintExpression            ::= 'print' Expression
+
+ParenthesizedExpression    ::= '(' Expression ')'
+
+SequenceExpression         ::= '(' Expression (';' Expression)+ ')'
 
 
 ComparisonOperator         ::= '=' | '<>' | '<' | '>' | '<=' | '>='
 AdditiveOperator           ::= '+' | '-'
 MultiplicativeOperator     ::= '*' | 'div' | 'mod'
 
-Type                       ::= 'int' | 'bool'
+Type                       ::= 'int' | 'bool' | 'unit'
 
 IntegerConstant            ::= '~'? Digit+
 BooleanConstant            ::= 'true' | 'false'
 Identifier                 ::= Letter (Letter | Digit | "'" | '_')*
-
-Letter                     ::= [a-zA-Z]
-Digit                      ::= [0-9]
 
 Keyword                    ::= 'fun' | 'val' | 'ref'
                              | 'let' | 'in'  | 'end'
@@ -75,8 +73,11 @@ Keyword                    ::= 'fun' | 'val' | 'ref'
                              | 'print'
                              | 'not' | 'orelse' | 'andalso'
                              | 'true' | 'false'
-                             | 'int'  | 'bool'
+                             | 'int'  | 'bool' | 'unit'
                              | 'div'  | 'mod'
+
+Letter                     ::= [a-zA-Z]
+Digit                      ::= [0-9]
 ```
 
 ## Terminals
@@ -89,20 +90,21 @@ Keyword                    ::= 'fun' | 'val' | 'ref'
 | `let` | keyword | opens the declaration block |
 | `in` | keyword | separates declarations from statements |
 | `end` | keyword | closes the `let`/`in` block |
-| `if` | keyword | opens a conditional statement |
+| `if` | keyword | opens a conditional expression |
 | `then` | keyword | separates the condition from the true branch |
 | `else` | keyword | opens the false branch — mandatory, `if` without `else` is forbidden |
-| `while` | keyword | opens a loop statement |
+| `while` | keyword | opens a loop expression |
 | `do` | keyword | separates the loop condition from the loop body |
 | `print` | keyword | built-in output function |
 | `not` | keyword | logical negation |
 | `andalso` | keyword | lazy logical AND |
 | `orelse` | keyword | lazy logical OR |
-| `true` | keyword | boolean literal TRUE |
-| `false` | keyword | boolean literal FALSE |
+| `true` | keyword | boolean literal true |
+| `false` | keyword | boolean literal false |
 | `int` | keyword | integer type |
 | `bool` | keyword | boolean type |
-| `div` | keyword | integer division (rounds down to the nearest integer) |
+| `unit` | keyword | unit type — the type of expressions that return no meaningful value |
+| `div` | keyword | integer division (rounds toward negative infinity) |
 | `mod` | keyword | remainder (sign follows the divisor) |
 | `:=` | operator | assignment — writes a new value into a `ref` cell |
 | `=` | operator | equality comparison |
@@ -114,11 +116,11 @@ Keyword                    ::= 'fun' | 'val' | 'ref'
 | `+` | operator | addition |
 | `-` | operator | subtraction |
 | `*` | operator | multiplication |
-| `~` | operator | unary minus (distinct from binary `-`) |
+| `~` | operator | unary minus (SML-style, distinct from binary `-`) |
 | `!` | operator | dereference — reads the value stored in a `ref` cell |
 | `(` | delimiter | opening parenthesis |
 | `)` | delimiter | closing parenthesis |
-| `;` | delimiter | statement and declaration separator |
+| `;` | delimiter | expression separator |
 | `:` | delimiter | separates name from type in a type annotation |
 | `Identifier` | lexeme | variable or function name: `[a-zA-Z][a-zA-Z0-9'_]*` |
 | `IntegerConstant` | lexeme | integer literal: `~?[0-9]+` |
