@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-apt-get update
-apt-get install -y git
-apt-get install -y clang
-apt-get install -y cmake
+export DEBIAN_FRONTEND=noninteractive
+
+sudo apt-get update
+sudo apt-get install -y git clang cmake
