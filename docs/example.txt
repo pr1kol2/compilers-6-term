@@ -1,11 +1,8 @@
-fun main () : unit =
-  let
-    val n   = ref 5;
-    val acc = ref 1
-  in
-    while !n > 0 do (
-      acc := !acc * !n;
-      n   := !n - 1
-    );
-    print !acc
-  end
+defn f x = { x + x }
+
+data List = { Nil, Cons Int List }
+
+case l of {
+    Nil -> { 0 }
+    Cons x xs -> { x }
+}
