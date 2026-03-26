@@ -23,7 +23,7 @@ Primary = num | lowerVariable | upperVariable | “(”, Expression, “)” | C
 
 CaseExpression = “case”, Expression, “of”, “{”, Branch, { Branch }, “}” ;
 
-Branch = Pattern, “->”, Expression ;
+Branch = Pattern, “->”, “{“, Expression, “}” ;
 
 Pattern = lowerVariable | upperVariable, { lowerVariable } ;
 ```
@@ -31,7 +31,7 @@ Pattern = lowerVariable | upperVariable, { lowerVariable } ;
 ## Terminals (Tokens)
 
 | Terminal | Regex | Description |
-|----------|-------|-------------|
+| - | - | - |
 | `num` | `[0-9]+` | Integer literal used in arithmetic expressions |
 | `lowerVariable` | `[a-z][a-zA-Z]*` | Identifier starting with lowercase letter: variables, functions, arguments |
 | `upperVariable` | `[A-Z][a-zA-Z]*` | Identifier starting with uppercase letter: data types and constructors |
@@ -54,4 +54,3 @@ Pattern = lowerVariable | upperVariable, { lowerVariable } ;
 ## References
 
 - [Extended Backus–Naur form](https://en.wikipedia.org/wiki/Extended_Backus–Naur_form)
-

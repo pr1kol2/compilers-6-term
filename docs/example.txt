@@ -2,7 +2,9 @@ defn f x = { x + x }
 
 data List = { Nil, Cons Int List }
 
-case l of {
+defn g l = {
+  case l of {
     Nil -> { 0 }
     Cons x xs -> { x }
+  }
 }
