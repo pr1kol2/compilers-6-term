@@ -103,8 +103,8 @@ Digit                      ::= [0-9]
 | `false` | keyword | boolean literal false |
 | `int` | keyword | integer type |
 | `bool` | keyword | boolean type |
-| `unit` | keyword | unit type — the type of expressions that return no meaningful value |
-| `div` | keyword | integer division (rounds toward negative infinity) |
+| `unit` | keyword | unit type — the type of expressions that return no value |
+| `div` | keyword | integer division (rounds down to closest integer) |
 | `mod` | keyword | remainder (sign follows the divisor) |
 | `:=` | operator | assignment — writes a new value into a `ref` cell |
 | `=` | operator | equality comparison |
@@ -116,7 +116,7 @@ Digit                      ::= [0-9]
 | `+` | operator | addition |
 | `-` | operator | subtraction |
 | `*` | operator | multiplication |
-| `~` | operator | unary minus (SML-style, distinct from binary `-`) |
+| `~` | operator | unary minus (distinct from binary `-`) |
 | `!` | operator | dereference — reads the value stored in a `ref` cell |
 | `(` | delimiter | opening parenthesis |
 | `)` | delimiter | closing parenthesis |
