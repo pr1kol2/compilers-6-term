@@ -1,11 +1,12 @@
 #pragma once
 
-#include <string>
 #include <string_view>
 #include <vector>
 
+#include "tokenization/token.hpp"
+
 namespace tokenization {
 
-std::vector<std::string> Tokenize(std::string_view source);
+std::vector<Token> tokenize(std::string_view source);
 
 }  // namespace tokenization
