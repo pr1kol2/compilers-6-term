@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstddef>
+#include <string>
 
 namespace util {
 
@@ -11,6 +11,8 @@ struct Position {
   std::size_t end_column;
 
   bool operator==(const Position&) const = default;
+
+  std::string toString() const;
 };
 
 }  // namespace util
