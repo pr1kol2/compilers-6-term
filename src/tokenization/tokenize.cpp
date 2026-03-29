@@ -1,24 +1,32 @@
 #include "tokenization/tokenize.hpp"
 
+#include <array>
 #include <cctype>
+#include <format>
 #include <optional>
-#include <stdexcept>
-#include <string>
-#include <unordered_map>
+#include <string_view>
 
 namespace tokenization {
 
-namespace {
+bool isAlpha(char character) { return std::isalpha(character) == 1; }
 
-const std::unordered_map<std::string, TokenVariant> kKeywords = {
-    {"defn", Definition{}},
-    {"data", Data{}},
-    {"case", Case{}},
-    {"of", Of{}},
+bool isDigit(char character) { return std::isdigit(character) == 1; }
+
+bool isLower(char character) { return std::islower(character) == 1; }
+
+bool isSpace(char character) { return std::isspace(character) == 1; }
+
+struct KeywordEntry {
+  std::string_view keyword;
+  TokenVariant token;
 };
 
-std::optional<TokenVariant> singleCharToken(char c) {
-  switch (c) {
+const std::array kKeywords = {
+    KeywordEntry{"defn", Definition{}}, KeywordEntry{"data", Data{}},
+    KeywordEntry{"case", Case{}}, KeywordEntry{"of", Of{}}};
+
+std::optional<TokenVariant> singleCharToken(char character) {
+  switch (character) {
     case '=':
       return Equal{};
     case '+':
@@ -49,9 +57,9 @@ class Scanner {
   explicit Scanner(std::string_view source) : source_(source) {}
 
   std::vector<Token> scan() {
-    while (pos_ < source_.size()) {
+    while (position_ < source_.size()) {
       skipWhitespace();
-      if (pos_ >= source_.size()) {
+      if (position_ >= source_.size()) {
         break;
       }
       scanToken();
@@ -62,93 +70,104 @@ class Scanner {
  private:
   std::string_view source_;
   std::vector<Token> tokens_;
-  std::size_t pos_ = 0;
+  std::size_t position_ = 0;
   std::size_t line_ = 1;
-  std::size_t col_ = 1;
+  std::size_t column_ = 1;
+  std::size_t token_start_line_ = 1;
+  std::size_t token_start_column_ = 1;
 
   [[nodiscard]] char peek() const {
-    return pos_ < source_.size() ? source_[pos_] : '\0';
+    return position_ < source_.size() ? source_[position_] : '\0';
   }
 
   char advance() {
-    char c = source_[pos_++];
-    if (c == '\n') {
+    char character = source_[position_++];
+    if (character == '\n') {
       ++line_;
-      col_ = 1;
+      column_ = 1;
     } else {
-      ++col_;
+      ++column_;
     }
-    return c;
+    return character;
   }
 
-  void emit(TokenVariant data, std::size_t bl, std::size_t bc) {
-    tokens_.push_back({.load = std::move(data),
-                       .position = {.begin_line = bl,
-                                    .begin_column = bc,
-                                    .end_line = line_,
-                                    .end_column = col_}});
+  template <typename V>
+  void emit(V&& load) {
+    tokens_.emplace_back(Token{.load = std::forward<V>(load),
+                               .position = {.begin_line = token_start_line_,
+                                            .begin_column = token_start_column_,
+                                            .end_line = line_,
+                                            .end_column = column_}});
   }
 
   void skipWhitespace() {
-    while (pos_ < source_.size() && std::isspace(peek()) != 0) {
+    while (position_ < source_.size() && isSpace(peek())) {
       advance();
     }
   }
 
   void scanToken() {
-    std::size_t bl = line_;
-    std::size_t bc = col_;
-    char c = peek();
+    token_start_line_ = line_;
+    token_start_column_ = column_;
+    char character = peek();
 
-    if (std::isalpha(c) != 0) {
-      scanWord(bl, bc);
-    } else if (std::isdigit(c) != 0) {
-      scanNumber(bl, bc);
-    } else if (c == '-' && pos_ + 1 < source_.size() &&
-               source_[pos_ + 1] == '>') {
-      scanArrow(bl, bc);
-    } else if (auto tok = singleCharToken(c)) {
+    if (isAlpha(character)) {
+      scanWord();
+    } else if (isDigit(character)) {
+      scanNumber();
+    } else if (character == '-' && position_ + 1 < source_.size() &&
+               source_[position_ + 1] == '>') {
+      scanArrow();
+    } else if (auto token = singleCharToken(character)) {
       advance();
-      emit(*tok, bl, bc);
+      emit(std::move(*token));
     } else {
-      throw std::runtime_error("Unexpected character '" + std::string(1, c) +
-                               "' at " + std::to_string(bl) + ":" +
-                               std::to_string(bc));
+      util::Position pos{.begin_line = line_,
+                         .begin_column = column_,
+                         .end_line = line_,
+                         .end_column = column_};
+      throw std::runtime_error(std::format("Unexpected character '{}' at {}",
+                                           character, pos.toString()));
     }
   }
 
-  void scanWord(std::size_t bl, std::size_t bc) {
-    bool lower = std::islower(peek()) != 0;
-    std::string word;
-    while (pos_ < source_.size() && std::isalpha(peek()) != 0) {
-      word += advance();
+  void scanWord() {
+    bool is_lower = isLower(peek());
+    std::size_t start = position_;
+    while (position_ < source_.size() && isAlpha(peek())) {
+      advance();
+    }
+    std::string_view word = source_.substr(start, position_ - start);
+
+    for (const auto& [text, token] : kKeywords) {
+      if (word == text) {
+        emit(token);
+        return;
+      }
     }
 
-    if (auto it = kKeywords.find(word); it != kKeywords.end()) {
-      emit(it->second, bl, bc);
-    } else if (lower) {
-      emit(LowerVariable{std::move(word)}, bl, bc);
+    if (is_lower) {
+      emit(LowerVariable{std::string(word)});
     } else {
-      emit(UpperVariable{std::move(word)}, bl, bc);
+      emit(UpperVariable{std::string(word)});
     }
   }
 
-  void scanNumber(std::size_t bl, std::size_t bc) {
-    std::string num;
-    while (pos_ < source_.size() && std::isdigit(peek()) != 0) {
-      num += advance();
+  void scanNumber() {
+    int value = 0;
+    while (position_ < source_.size() && isDigit(peek())) {
+      const int kDecimalBase = 10;
+      value = (value * kDecimalBase) + (advance() - '0');
     }
-    emit(IntLiteral{std::stoi(num)}, bl, bc);
+    emit(IntLiteral{value});
   }
 
-  void scanArrow(std::size_t bl, std::size_t bc) {
+  void scanArrow() {
     advance();
     advance();
-    emit(Arrow{}, bl, bc);
+    emit(Arrow{});
   }
 };
-
-}  // namespace
 
 std::vector<Token> tokenize(std::string_view source) {
   return Scanner{source}.scan();
