@@ -6,6 +6,8 @@
 #include <optional>
 #include <string_view>
 
+#include "tokenization/token.hpp"
+
 namespace tokenization {
 
 bool isAlpha(char character) { return std::isalpha(character) == 1; }
@@ -22,7 +24,7 @@ struct KeywordEntry {
 };
 
 const std::array kKeywords = {
-    KeywordEntry{"defn", Definition{}}, KeywordEntry{"data", Data{}},
+    KeywordEntry{"defn", Function{}}, KeywordEntry{"data", Data{}},
     KeywordEntry{"case", Case{}}, KeywordEntry{"of", Of{}}};
 
 std::optional<TokenVariant> singleCharToken(char character) {

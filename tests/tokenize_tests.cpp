@@ -15,7 +15,7 @@ TEST(Tokenize, Whitespaces) { EXPECT_TRUE(tokenize("   \n\t  ").empty()); }
 TEST(Tokenize, Keywords) {
   auto tokens = tokenize("defn data case of");
   std::vector<Token> expected = {
-      {Definition{}, {1, 1, 1, 5}},
+      {Function{}, {1, 1, 1, 5}},
       {Data{}, {1, 6, 1, 10}},
       {Case{}, {1, 11, 1, 15}},
       {Of{}, {1, 16, 1, 18}},
@@ -81,7 +81,7 @@ TEST(Tokenize, AllOperatorsAndDelimiters) {
 TEST(Tokenize, TracksPosition) {
   auto tokens = tokenize("defn\nfoo");
   std::vector<Token> expected = {
-      {Definition{}, {1, 1, 1, 5}},
+      {Function{}, {1, 1, 1, 5}},
       {LowerVariable{"foo"}, {2, 1, 2, 4}},
   };
   EXPECT_TRUE(std::ranges::equal(tokens, expected));
@@ -94,7 +94,7 @@ TEST(Tokenize, ThrowsOnUnexpectedCharacter) {
 TEST(Tokenize, FunctionDeclaration) {
   auto tokens = tokenize("defn f x = { x + x }");
   std::vector<Token> expected = {
-      {Definition{}, {1, 1, 1, 5}},       {LowerVariable{"f"}, {1, 6, 1, 7}},
+      {Function{}, {1, 1, 1, 5}},         {LowerVariable{"f"}, {1, 6, 1, 7}},
       {LowerVariable{"x"}, {1, 8, 1, 9}}, {Equal{}, {1, 10, 1, 11}},
       {LeftBrace{}, {1, 12, 1, 13}},      {LowerVariable{"x"}, {1, 14, 1, 15}},
       {Plus{}, {1, 16, 1, 17}},           {LowerVariable{"x"}, {1, 18, 1, 19}},
