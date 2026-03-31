@@ -32,24 +32,24 @@ Pattern = lowerVariable | upperVariable, { lowerVariable } ;
 
 | Terminal | Regex | Description |
 | - | - | - |
-| `num` | `[0-9]+` | Integer literal used in arithmetic expressions |
-| `lowerVariable` | `[a-z][a-zA-Z]*` | Identifier starting with lowercase letter: variables, functions, arguments |
-| `upperVariable` | `[A-Z][a-zA-Z]*` | Identifier starting with uppercase letter: data types and constructors |
-| `defn` | `defn` | Keyword for function definition |
-| `data` | `data` | Keyword for algebraic data type Declarationaration |
-| `case` | `case` | Keyword for pattern matching |
-| `of` | `of` | Keyword separating expression and branches in case |
-| `=` | `=` | Assignment operator in Declarationarations |
-| `->` | `->` | Arrow separating pattern and expression in case branch |
-| `+` | `+` | Addition operator |
-| `-` | `-` | Subtraction operator |
-| `*` | `*` | Multiplication operator |
-| `/` | `/` | Division operator |
-| `{` | `{` | Opening brace for function body and case branches |
-| `}` | `}` | Closing brace |
-| `(` | `(` | Opening parenthesis |
-| `)` | `)` | Closing parenthesis |
-| `,` | `,` | Separator for constructors |
+| `IntLiteral` | `[0-9]+` | Integer literal used in arithmetic expressions |
+| `LowerVariable` | `[a-z][a-zA-Z]*` | Identifier starting with lowercase letter: variables, functions, arguments |
+| `UpperVariable` | `[A-Z][a-zA-Z]*` | Identifier starting with uppercase letter: data types and constructors |
+| `Definition` | `defn` | Keyword for function definition |
+| `Data` | `data` | Keyword for algebraic data type declaration |
+| `Case` | `case` | Keyword for pattern matching |
+| `Of` | `of` | Keyword separating expression and branches in case |
+| `Equal` | `=` | Assignment operator in declarations |
+| `Arrow` | `->` | Arrow separating pattern and expression in case branch |
+| `Plus` | `+` | Addition operator |
+| `Minus` | `-` | Subtraction operator |
+| `Star` | `*` | Multiplication operator |
+| `Slash` | `/` | Division operator |
+| `LeftBrace` | `{` | Opening brace for function body and case branches |
+| `RightBrace` | `}` | Closing brace |
+| `LeftParentheses` | `(` | Opening parenthesis |
+| `RightParentheses` | `)` | Closing parenthesis |
+| `Comma` | `,` | Separator for constructors |
 
 ## References
 
