@@ -8,7 +8,8 @@ Checks: >
   readability-*,
   cppcoreguidelines-*,
   -readability-identifier-length,
-  -modernize-use-trailing-return-type
+  -modernize-use-trailing-return-type,
+  -modernize-use-designated-initializers
 
 CheckOptions:
   - key:             HeaderFilterRegex
