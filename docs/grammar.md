@@ -1,13 +1,13 @@
 # MF grammar
 
 ```ebnf
-Program = { TopLevelDeclaration } ;
+Program = { Definition } ;
 
-TopLevelDeclaration = FunctionDeclaration | DataTypeDeclaration ;
+Definition = FunctionDefinition | DataTypeDefinition ;
 
-FunctionDeclaration = “defn”, lowerVariable, { lowerVariable }, “=”, “{”, Expression, “}” ;
+FunctionDefinition = “defn”, lowerVariable, { lowerVariable }, “=”, “{”, Expression, “}” ;
 
-DataTypeDeclaration = “data”, upperVariable, “=”, “{”, Constructor, { “,”, Constructor }, “}” ;
+DataTypeDefinition = “data”, upperVariable, “=”, “{”, Constructor, { “,”, Constructor }, “}” ;
 
 Constructor = upperVariable, { upperVariable } ;
 
@@ -28,15 +28,15 @@ Branch = Pattern, “->”, “{“, Expression, “}” ;
 Pattern = lowerVariable | upperVariable, { lowerVariable } ;
 ```
 
-## Terminals (Tokens)
+## Tokens (terminals)
 
-| Terminal | Regex | Description |
+| Token | Regex | Description |
 | - | - | - |
 | `IntLiteral` | `[0-9]+` | Integer literal used in arithmetic expressions |
 | `LowerVariable` | `[a-z][a-zA-Z]*` | Identifier starting with lowercase letter: variables, functions, arguments |
 | `UpperVariable` | `[A-Z][a-zA-Z]*` | Identifier starting with uppercase letter: data types and constructors |
-| `Definition` | `defn` | Keyword for function definition |
-| `Data` | `data` | Keyword for algebraic data type declaration |
+| `Function` | `defn` | Keyword for function definition |
+| `Data` | `data` | Keyword for algebraic data type definition |
 | `Case` | `case` | Keyword for pattern matching |
 | `Of` | `of` | Keyword separating expression and branches in case |
 | `Equal` | `=` | Assignment operator in declarations |
