@@ -27,7 +27,7 @@ constexpr bool equalBy(const T& left, const T& right, Members... members) {
     return detail::equalBy(left, right, __VA_ARGS__);           \
   }
 
-#define DECLARE_BINARY_EXPRESSION(Type)                                     \
+#define DECLARE_BINARY_OPERATOR(Type)                                       \
   struct Type {                                                             \
     AST_NODE_ID                                                             \
     ExpressionPtr left_operand;                                             \
@@ -62,10 +62,10 @@ struct Variable {
   DECLARE_OPERATOR_EQUAL(Variable, &Variable::name)
 };
 
-DECLARE_BINARY_EXPRESSION(Addition)
-DECLARE_BINARY_EXPRESSION(Subtraction)
-DECLARE_BINARY_EXPRESSION(Multiplication)
-DECLARE_BINARY_EXPRESSION(Division)
+DECLARE_BINARY_OPERATOR(Addition)
+DECLARE_BINARY_OPERATOR(Subtraction)
+DECLARE_BINARY_OPERATOR(Multiplication)
+DECLARE_BINARY_OPERATOR(Division)
 
 struct Application {
   AST_NODE_ID
@@ -148,7 +148,7 @@ struct Program {
 
 #undef AST_NODE_ID
 #undef DECLARE_OPERATOR_EQUAL
-#undef DECLARE_BINARY_EXPRESSION
+#undef DECLARE_BINARY_OPERATOR
 #undef DECLARE_VARIANT_WRAPPER
 
 }  // namespace ast

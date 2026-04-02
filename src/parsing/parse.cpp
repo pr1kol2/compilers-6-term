@@ -2,62 +2,50 @@
 
 #include <format>
 #include <optional>
-#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "parsing/ast.hpp"
+#include "util/box.hpp"
 #include "util/position.hpp"
 
 namespace parsing {
 
 namespace {
 
-template <typename Node>
-ast::Expression makeExpression(Node node) {
-  return ast::Expression{std::move(node)};
-}
-
 class Parser {
  public:
-  explicit Parser(std::span<const tokenization::Token> tokens)
-      : tokens_(tokens) {}
+  explicit Parser(const std::vector<tokenization::Token>& tokens)
+      : it_(tokens.begin()), end_(tokens.end()) {}
 
-  ParsedProgram parseProgram() {
+  ParsedProgram parse() {
     ast::Program program;
     while (!atEnd()) {
       program.definitions.push_back(parseDefinition());
     }
 
     return {
-        .ast = std::move(program),
-        .positions = std::move(positions_),
+        std::move(program),
+        std::move(positions_),
     };
   }
 
  private:
-  using BinaryFactory = ast::Expression (*)(ast::NodeId, ast::ExpressionPtr,
-                                            ast::ExpressionPtr);
+  using TokenIterator = std::vector<tokenization::Token>::const_iterator;
+  using BinaryOperatorFactory = ast::Expression (*)(ast::NodeId,
+                                                    ast::ExpressionPtr,
+                                                    ast::ExpressionPtr);
 
-  std::span<const tokenization::Token> tokens_;
+  TokenIterator it_;
+  const TokenIterator end_;  // NOLINT
   std::vector<util::Position> positions_;
-  std::size_t cursor_ = 0;
 
-  // --- Token helpers ---
+  [[nodiscard]] bool atEnd() const { return it_ == end_; }
 
-  [[nodiscard]] bool atEnd() const { return cursor_ >= tokens_.size(); }
-
-  [[nodiscard]] const tokenization::Token& current() const {
-    return tokens_[cursor_];
-  }
-
-  [[nodiscard]] const util::Position& currentPosition() const {
-    return current().position;
-  }
-
-  [[nodiscard]] ast::NodeId allocateNode(util::Position position) {
+  [[nodiscard]] ast::NodeId allocateNode(const util::Position& position) {
     if (positions_.size() >= ast::kInvalidNodeId) {
       throw std::overflow_error("Too many AST nodes");
     }
@@ -67,16 +55,20 @@ class Parser {
     return node_id;
   }
 
-  const tokenization::Token& advance() { return tokens_[cursor_++]; }
+  const tokenization::Token& advance() {
+    const auto& token = *it_;
+    ++it_;
+    return token;
+  }
 
   template <typename T>
   [[nodiscard]] bool check() const {
-    return !atEnd() && std::holds_alternative<T>(current().load);
+    return !atEnd() && std::holds_alternative<T>(it_->load);
   }
 
-  template <typename... T>
+  template <typename... Ts>
   [[nodiscard]] bool checkAny() const {
-    return (check<T>() || ...);
+    return (check<Ts>() || ...);
   }
 
   template <typename T>
@@ -86,7 +78,7 @@ class Parser {
         throw std::runtime_error("Unexpected end of input");
       }
       throw std::runtime_error(
-          std::format("Unexpected token at {}", currentPosition().toString()));
+          std::format("Unexpected token at {}", it_->position.toString()));
     }
     return std::get<T>(advance().load);
   }
@@ -105,13 +97,24 @@ class Parser {
       throw std::runtime_error(
           std::format("Expected {}, got end of input", expected));
     }
-    throw std::runtime_error(std::format("Expected {} at {}", expected,
-                                         currentPosition().toString()));
+    throw std::runtime_error(
+        std::format("Expected {} at {}", expected, it_->position.toString()));
   }
 
   template <typename Token>
   std::string expectName() {
     return std::string(expect<Token>().name);
+  }
+
+  template <typename First, typename... Rest>
+  std::string expectAnyName() {
+    if (check<First>()) {
+      return expectName<First>();
+    }
+    if constexpr (sizeof...(Rest) > 0) {
+      return expectAnyName<Rest...>();
+    }
+    throwExpected("name");
   }
 
   template <typename Token>
@@ -136,7 +139,7 @@ class Parser {
   }
 
   ast::FunctionDefinition parseFunctionDefinition() {
-    const auto position = currentPosition();
+    const auto& position = it_->position;
     expect<tokenization::Function>();
     auto name = expectName<tokenization::LowerVariable>();
     auto parameters = parseNamesWhile<tokenization::LowerVariable>();
@@ -147,15 +150,15 @@ class Parser {
     expect<tokenization::RightBrace>();
 
     return {
-        .id = allocateNode(position),
-        .name = std::move(name),
-        .parameters = std::move(parameters),
-        .body = std::move(body),
+        allocateNode(position),
+        std::move(name),
+        std::move(parameters),
+        std::move(body),
     };
   }
 
   ast::DataTypeDefinition parseDataTypeDefinition() {
-    const auto position = currentPosition();
+    const auto& position = it_->position;
     expect<tokenization::Data>();
     auto name = expectName<tokenization::UpperVariable>();
     expect<tokenization::Equal>();
@@ -169,25 +172,25 @@ class Parser {
     expect<tokenization::RightBrace>();
 
     return {
-        .id = allocateNode(position),
-        .name = std::move(name),
-        .constructors = std::move(constructors),
+        allocateNode(position),
+        std::move(name),
+        std::move(constructors),
     };
   }
 
   ast::Constructor parseConstructor() {
-    const auto position = currentPosition();
+    const auto& position = it_->position;
     auto name = expectName<tokenization::UpperVariable>();
     auto fields = parseNamesWhile<tokenization::UpperVariable>();
 
     return {
-        .id = allocateNode(position),
-        .name = std::move(name),
-        .fields = std::move(fields),
+        allocateNode(position),
+        std::move(name),
+        std::move(fields),
     };
   }
 
-  // --- Expressions (precedence climbing) ---
+  // --- Expressions ---
 
   template <typename ParseOperand, typename MatchOperator>
   ast::ExpressionPtr parseBinaryLevel(ParseOperand parseOperand,
@@ -195,7 +198,7 @@ class Parser {
     auto left = parseOperand();
 
     while (!atEnd()) {
-      const auto position = currentPosition();
+      const auto& position = it_->position;
       const auto factory = matchOperator();
       if (!factory) {
         break;
@@ -210,41 +213,45 @@ class Parser {
   }
 
   template <typename BinOp>
-  static ast::Expression makeBinaryOp(ast::NodeId id, ast::ExpressionPtr left,
-                                      ast::ExpressionPtr right) {
-    return makeExpression(BinOp{
-        .id = id,
-        .left_operand = std::move(left),
-        .right_operand = std::move(right),
-    });
+  static ast::Expression makeBinaryOperator(ast::NodeId id,
+                                            ast::ExpressionPtr left,
+                                            ast::ExpressionPtr right) {
+    return BinOp{
+        id,
+        std::move(left),
+        std::move(right),
+    };
+  }
+
+  template <typename Token, typename AstNode, typename... Rest>
+  std::optional<BinaryOperatorFactory> matchBinaryOperator() {
+    if (match<Token>()) {
+      return &makeBinaryOperator<AstNode>;
+    }
+    if constexpr (sizeof...(Rest) > 0) {
+      return matchBinaryOperator<Rest...>();
+    }
+    return std::nullopt;
   }
 
   // Expression = Term { ("+" | "-") Term }
   ast::ExpressionPtr parseExpression() {
-    return parseBinaryLevel([this] { return parseTerm(); },
-                            [this]() -> std::optional<BinaryFactory> {
-                              if (match<tokenization::Plus>()) {
-                                return &makeBinaryOp<ast::Addition>;
-                              }
-                              if (match<tokenization::Minus>()) {
-                                return &makeBinaryOp<ast::Subtraction>;
-                              }
-                              return std::nullopt;
-                            });
+    return parseBinaryLevel(
+        [this] { return parseTerm(); },
+        [this] {
+          return matchBinaryOperator<tokenization::Plus, ast::Addition,
+                                     tokenization::Minus, ast::Subtraction>();
+        });
   }
 
   // Term = Factor { ("*" | "/") Factor }
   ast::ExpressionPtr parseTerm() {
-    return parseBinaryLevel([this] { return parseFactor(); },
-                            [this]() -> std::optional<BinaryFactory> {
-                              if (match<tokenization::Star>()) {
-                                return &makeBinaryOp<ast::Multiplication>;
-                              }
-                              if (match<tokenization::Slash>()) {
-                                return &makeBinaryOp<ast::Division>;
-                              }
-                              return std::nullopt;
-                            });
+    return parseBinaryLevel(
+        [this] { return parseFactor(); },
+        [this] {
+          return matchBinaryOperator<tokenization::Star, ast::Multiplication,
+                                     tokenization::Slash, ast::Division>();
+        });
   }
 
   // Factor = Application
@@ -254,23 +261,19 @@ class Parser {
   ast::ExpressionPtr parseApplication() {
     auto expression = parsePrimary();
 
-    while (canStartPrimary()) {
-      const auto position = currentPosition();
+    while (checkAny<tokenization::IntLiteral, tokenization::LowerVariable,
+                    tokenization::UpperVariable, tokenization::LeftParentheses,
+                    tokenization::Case>()) {
+      const auto& position = it_->position;
       auto argument = parsePrimary();
-      expression = makeExpression(ast::Application{
-          .id = allocateNode(position),
-          .function = std::move(expression),
-          .argument = std::move(argument),
-      });
+      expression = ast::Application{
+          allocateNode(position),
+          std::move(expression),
+          std::move(argument),
+      };
     }
 
     return expression;
-  }
-
-  [[nodiscard]] bool canStartPrimary() const {
-    return checkAny<tokenization::IntLiteral, tokenization::LowerVariable,
-                    tokenization::UpperVariable, tokenization::LeftParentheses,
-                    tokenization::Case>();
   }
 
   // Primary = num | lowerVar | upperVar | "(" Expression ")" | CaseExpression
@@ -291,22 +294,21 @@ class Parser {
   }
 
   ast::ExpressionPtr parseIntLiteral() {
-    const auto position = currentPosition();
-    return makeExpression(ast::IntLiteral{
-        .id = allocateNode(position),
-        .value = expect<tokenization::IntLiteral>().value,
-    });
+    const auto& position = it_->position;
+    return {ast::IntLiteral{
+        allocateNode(position),
+        expect<tokenization::IntLiteral>().value,
+    }};
   }
 
   ast::ExpressionPtr parseVariable() {
-    const auto position = currentPosition();
-    auto name = check<tokenization::LowerVariable>()
-                    ? expectName<tokenization::LowerVariable>()
-                    : expectName<tokenization::UpperVariable>();
-    return makeExpression(ast::Variable{
-        .id = allocateNode(position),
-        .name = std::move(name),
-    });
+    const auto& position = it_->position;
+    auto name = expectAnyName<tokenization::LowerVariable,
+                              tokenization::UpperVariable>();
+    return {ast::Variable{
+        allocateNode(position),
+        std::move(name),
+    }};
   }
 
   ast::ExpressionPtr parseParenthesized() {
@@ -318,7 +320,7 @@ class Parser {
 
   // CaseExpression = "case" Expression "of" "{" Branch { Branch } "}"
   ast::ExpressionPtr parseCaseExpression() {
-    const auto position = currentPosition();
+    const auto& position = it_->position;
     expect<tokenization::Case>();
     auto scrutinee = parseExpression();
     expect<tokenization::Of>();
@@ -331,16 +333,16 @@ class Parser {
 
     expect<tokenization::RightBrace>();
 
-    return makeExpression(ast::CaseExpression{
-        .id = allocateNode(position),
-        .scrutinee = std::move(scrutinee),
-        .branches = std::move(branches),
-    });
+    return {ast::CaseExpression{
+        allocateNode(position),
+        std::move(scrutinee),
+        std::move(branches),
+    }};
   }
 
   // Branch = Pattern "->" "{" Expression "}"
   ast::Branch parseBranch() {
-    const auto position = currentPosition();
+    const auto& position = it_->position;
     auto pattern = parsePattern();
     expect<tokenization::Arrow>();
     expect<tokenization::LeftBrace>();
@@ -348,9 +350,9 @@ class Parser {
     expect<tokenization::RightBrace>();
 
     return {
-        .id = allocateNode(position),
-        .pattern = std::move(pattern),
-        .body = std::move(body),
+        allocateNode(position),
+        std::move(pattern),
+        std::move(body),
     };
   }
 
@@ -366,19 +368,19 @@ class Parser {
   }
 
   ast::Pattern parseVariablePattern() {
-    const auto position = currentPosition();
-    return ast::Pattern{ast::VariablePattern{
-        .id = allocateNode(position),
-        .name = expectName<tokenization::LowerVariable>(),
+    const auto& position = it_->position;
+    return {ast::VariablePattern{
+        allocateNode(position),
+        expectName<tokenization::LowerVariable>(),
     }};
   }
 
   ast::Pattern parseConstructorPattern() {
-    const auto position = currentPosition();
-    return ast::Pattern{ast::ConstructorPattern{
-        .id = allocateNode(position),
-        .name = expectName<tokenization::UpperVariable>(),
-        .arguments = parseNamesWhile<tokenization::LowerVariable>(),
+    const auto& position = it_->position;
+    return {ast::ConstructorPattern{
+        allocateNode(position),
+        expectName<tokenization::UpperVariable>(),
+        parseNamesWhile<tokenization::LowerVariable>(),
     }};
   }
 };
@@ -386,7 +388,7 @@ class Parser {
 }  // namespace
 
 ParsedProgram parse(const std::vector<tokenization::Token>& tokens) {
-  return Parser{tokens}.parseProgram();
+  return Parser{tokens}.parse();
 }
 
 }  // namespace parsing
