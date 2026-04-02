@@ -7,6 +7,7 @@
 #include <string_view>
 
 #include "tokenization/token.hpp"
+#include "util/position.hpp"
 
 namespace tokenization {
 
@@ -56,13 +57,14 @@ std::optional<TokenVariant> singleCharToken(char character) {
 
 class Scanner {
  public:
-  explicit Scanner(std::string_view source) : source_(source) {}
+  explicit Scanner(std::string_view source)
+      : source_(source), cursor_(source_.begin()) {}
 
   std::vector<Token> scan() {
-    while (position_ < source_.size()) {
-      skipWhitespace();
-      if (position_ >= source_.size()) {
-        break;
+    while (cursor_ != source_.end()) {
+      if (isSpace(*cursor_)) {
+        advance();
+        continue;
       }
       scanToken();
     }
@@ -72,74 +74,55 @@ class Scanner {
  private:
   std::string_view source_;
   std::vector<Token> tokens_;
-  std::size_t position_ = 0;
-  std::size_t line_ = 1;
-  std::size_t column_ = 1;
-  std::size_t token_start_line_ = 1;
-  std::size_t token_start_column_ = 1;
-
-  [[nodiscard]] char peek() const {
-    return position_ < source_.size() ? source_[position_] : '\0';
-  }
+  std::string_view::iterator cursor_;
+  util::Position pos_ = {
+      .begin_line = 1, .begin_column = 1, .end_line = 1, .end_column = 1};
 
   char advance() {
-    char character = source_[position_++];
+    char character = *cursor_;
+    std::advance(cursor_, 1);
     if (character == '\n') {
-      ++line_;
-      column_ = 1;
+      ++pos_.end_line;
+      pos_.end_column = 1;
     } else {
-      ++column_;
+      ++pos_.end_column;
     }
     return character;
   }
 
   template <typename V>
   void emit(V&& load) {
-    tokens_.emplace_back(Token{.load = std::forward<V>(load),
-                               .position = {.begin_line = token_start_line_,
-                                            .begin_column = token_start_column_,
-                                            .end_line = line_,
-                                            .end_column = column_}});
-  }
-
-  void skipWhitespace() {
-    while (position_ < source_.size() && isSpace(peek())) {
-      advance();
-    }
+    tokens_.emplace_back(Token{std::forward<V>(load), pos_});
   }
 
   void scanToken() {
-    token_start_line_ = line_;
-    token_start_column_ = column_;
-    char character = peek();
+    pos_.begin_line = pos_.end_line;
+    pos_.begin_column = pos_.end_column;
+    char character = *cursor_;
 
     if (isAlpha(character)) {
       scanWord();
     } else if (isDigit(character)) {
       scanNumber();
-    } else if (character == '-' && position_ + 1 < source_.size() &&
-               source_[position_ + 1] == '>') {
+    } else if (character == '-' && std::next(cursor_) != source_.end() &&
+               *std::next(cursor_) == '>') {
       scanArrow();
     } else if (auto token = singleCharToken(character)) {
       advance();
       emit(std::move(*token));
     } else {
-      util::Position pos{.begin_line = line_,
-                         .begin_column = column_,
-                         .end_line = line_,
-                         .end_column = column_};
       throw std::runtime_error(std::format("Unexpected character '{}' at {}",
-                                           character, pos.toString()));
+                                           character, pos_.toString()));
     }
   }
 
   void scanWord() {
-    bool is_lower = isLower(peek());
-    std::size_t start = position_;
-    while (position_ < source_.size() && isAlpha(peek())) {
+    bool is_lower = isLower(*cursor_);
+    const auto* const start = cursor_;
+    while (cursor_ != source_.end() && isAlpha(*cursor_)) {
       advance();
     }
-    std::string_view word = source_.substr(start, position_ - start);
+    std::string_view word{start, cursor_};
 
     for (const auto& [text, token] : kKeywords) {
       if (word == text) {
@@ -157,7 +140,7 @@ class Scanner {
 
   void scanNumber() {
     int value = 0;
-    while (position_ < source_.size() && isDigit(peek())) {
+    while (cursor_ != source_.end() && isDigit(*cursor_)) {
       const int kDecimalBase = 10;
       value = (value * kDecimalBase) + (advance() - '0');
     }
