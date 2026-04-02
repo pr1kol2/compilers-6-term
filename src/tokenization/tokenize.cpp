@@ -57,8 +57,6 @@ std::optional<TokenVariant> singleCharToken(char character) {
 
 class Scanner {
  public:
-  using SVIterator = std::string_view::const_iterator;
-
   explicit Scanner(std::string_view source)
       : it_(source.begin()), end_(source.cend()) {}
 
@@ -74,6 +72,8 @@ class Scanner {
   }
 
  private:
+  using SVIterator = std::string_view::const_iterator;
+
   std::vector<Token> tokens_;
   SVIterator it_;
   const SVIterator end_;  // NOLINT
