@@ -7,8 +7,6 @@
 
 namespace util {
 
-// TODO maybe delete / move to parse_tests.cpp
-
 template <typename Node>
 [[nodiscard]] const typename Node::Variant& variantOf(const Node& node) {
   return node;
