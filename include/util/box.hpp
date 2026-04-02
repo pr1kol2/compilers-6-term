@@ -6,7 +6,11 @@ template <typename T>
 class Box : private std::unique_ptr<T> {
  public:
   // NOLINTNEXTLINE
-  Box(T value) : std::unique_ptr<T>(std::make_unique<T>(std::move(value))) {}
+  Box(T&& value) : std::unique_ptr<T>(std::make_unique<T>(std::move(value))) {}
+  Box& operator=(T&& value) {
+    std::unique_ptr<T>::operator=(std::make_unique<T>(std::move(value)));
+    return *this;
+  }
 
   Box(const Box& other) : std::unique_ptr<T>(std::make_unique<T>(*other)) {}
   Box& operator=(const Box& other) {
