@@ -11,13 +11,21 @@
 
 namespace tokenization {
 
-bool isAlpha(char character) { return std::isalpha(character) == 1; }
+bool isAlpha(char character) {
+  return static_cast<bool>(std::isalpha(character));
+}
 
-bool isDigit(char character) { return std::isdigit(character) == 1; }
+bool isDigit(char character) {
+  return static_cast<bool>(std::isdigit(character));
+}
 
-bool isLower(char character) { return std::islower(character) == 1; }
+bool isLower(char character) {
+  return static_cast<bool>(std::islower(character));
+}
 
-bool isSpace(char character) { return std::isspace(character) == 1; }
+bool isSpace(char character) {
+  return static_cast<bool>(std::isspace(character));
+}
 
 struct KeywordEntry {
   std::string_view keyword;
