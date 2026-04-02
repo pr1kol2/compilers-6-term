@@ -5,8 +5,8 @@
 template <typename T>
 class Box : private std::unique_ptr<T> {
  public:
-  explicit Box(T value)
-      : std::unique_ptr<T>(std::make_unique<T>(std::move(value))) {}
+  // NOLINTNEXTLINE
+  Box(T value) : std::unique_ptr<T>(std::make_unique<T>(std::move(value))) {}
 
   Box(const Box& other) : std::unique_ptr<T>(std::make_unique<T>(*other)) {}
   Box& operator=(const Box& other) {
