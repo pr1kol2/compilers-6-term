@@ -57,12 +57,14 @@ std::optional<TokenVariant> singleCharToken(char character) {
 
 class Scanner {
  public:
+  using SVIterator = std::string_view::const_iterator;
+
   explicit Scanner(std::string_view source)
-      : source_(source), cursor_(source_.begin()) {}
+      : it_(source.begin()), end_(source.cend()) {}
 
   std::vector<Token> scan() {
-    while (cursor_ != source_.end()) {
-      if (isSpace(*cursor_)) {
+    while (!atEnd()) {
+      if (isSpace(*it_)) {
         advance();
         continue;
       }
@@ -72,15 +74,17 @@ class Scanner {
   }
 
  private:
-  std::string_view source_;
   std::vector<Token> tokens_;
-  std::string_view::iterator cursor_;
+  SVIterator it_;
+  const SVIterator end_;  // NOLINT
   util::Position pos_ = {
       .begin_line = 1, .begin_column = 1, .end_line = 1, .end_column = 1};
 
+  [[nodiscard]] bool atEnd() const { return it_ == end_; }
+
   char advance() {
-    char character = *cursor_;
-    std::advance(cursor_, 1);
+    char character = *it_;
+    std::advance(it_, 1);
     if (character == '\n') {
       ++pos_.end_line;
       pos_.end_column = 1;
@@ -98,14 +102,14 @@ class Scanner {
   void scanToken() {
     pos_.begin_line = pos_.end_line;
     pos_.begin_column = pos_.end_column;
-    char character = *cursor_;
+    char character = *it_;
 
     if (isAlpha(character)) {
       scanWord();
     } else if (isDigit(character)) {
       scanNumber();
-    } else if (character == '-' && std::next(cursor_) != source_.end() &&
-               *std::next(cursor_) == '>') {
+    } else if (character == '-' && std::next(it_) != end_ &&
+               *std::next(it_) == '>') {
       scanArrow();
     } else if (auto token = singleCharToken(character)) {
       advance();
@@ -117,12 +121,12 @@ class Scanner {
   }
 
   void scanWord() {
-    bool is_lower = isLower(*cursor_);
-    const auto* const start = cursor_;
-    while (cursor_ != source_.end() && isAlpha(*cursor_)) {
+    bool is_lower = isLower(*it_);
+    const auto* const start = it_;
+    while (!atEnd() && isAlpha(*it_)) {
       advance();
     }
-    std::string_view word{start, cursor_};
+    std::string_view word{start, it_};
 
     for (const auto& [text, token] : kKeywords) {
       if (word == text) {
@@ -140,7 +144,7 @@ class Scanner {
 
   void scanNumber() {
     int value = 0;
-    while (cursor_ != source_.end() && isDigit(*cursor_)) {
+    while (!atEnd() && isDigit(*it_)) {
       const int kDecimalBase = 10;
       value = (value * kDecimalBase) + (advance() - '0');
     }
