@@ -4,7 +4,8 @@
 
 Mini Functional (MF) language — is a a lazily evaluated, functional language.
 
-- [MF grammar](docs/grammar.md)
+- [Language grammar](docs/grammar.md)
+- [Correct program example](docs/example.txt)
 
 ## Usage
 
