@@ -4,7 +4,6 @@
 #include <gtest/gtest.h>
 #include <initializer_list>
 #include <ranges>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -15,20 +14,18 @@
 #include "parsing/ast_traits.hpp"
 #include "parsing/parse.hpp"
 #include "tokenization/tokenize.hpp"
-#include "util/overloaded.hpp"
 #include "util/variant.hpp"
 
 // NOLINTBEGIN
 
 using namespace ast;
-using namespace std::string_view_literals;
-using util::overloaded;
 using util::visitNode;
 
+namespace {
+
 template <typename Expected, typename Node>
-[[nodiscard]] const Expected& asNode(const Node& node,
-                                     std::string_view context = "AST node") {
-  return util::get<Expected>(node, context);
+[[nodiscard]] const Expected& asNode(const Node& node) {
+  return std::get<Expected>(util::variantOf(node));
 }
 
 parsing::ParsedProgram parseSource(std::string_view source) {
@@ -94,14 +91,14 @@ void expectPosition(const parsing::ParsedProgram& parsed, const Node& node,
 
 [[nodiscard]] const Expression& firstFunctionBody(
     const parsing::ParsedProgram& parsed) {
-  const auto& definition = asNode<FunctionDefinition>(
-      parsed.ast.definitions.front(), "top-level function definition");
+  const auto& definition =
+      asNode<FunctionDefinition>(parsed.ast.definitions.front());
   return *definition.body;
 }
 
 [[nodiscard]] const CaseExpression& firstFunctionCaseBody(
     const parsing::ParsedProgram& parsed) {
-  return asNode<CaseExpression>(firstFunctionBody(parsed), "function body");
+  return asNode<CaseExpression>(firstFunctionBody(parsed));
 }
 
 void collectNodeIds(const Pattern& pattern, std::vector<NodeId>& node_ids) {
@@ -153,12 +150,13 @@ void collectNodeIds(const Definition& definition,
   return node_ids;
 }
 
+}  // namespace
+
 TEST(Parse, NumericLiteral) {
   auto parsed = expectProgram(
       "defn f = { 42 }",
       Program{{Definition{FunctionDefinition{{}, "f", {}, literal(42)}}}});
-  const auto& node =
-      asNode<IntLiteral>(firstFunctionBody(parsed), "function body");
+  const auto& node = asNode<IntLiteral>(firstFunctionBody(parsed));
   expectPosition(parsed, node, {1, 12, 1, 14});
 }
 
@@ -166,8 +164,7 @@ TEST(Parse, Variable) {
   auto parsed = expectProgram(
       "defn f x = { x }",
       Program{{Definition{FunctionDefinition{{}, "f", {"x"}, variable("x")}}}});
-  const auto& node =
-      asNode<Variable>(firstFunctionBody(parsed), "function body");
+  const auto& node = asNode<Variable>(firstFunctionBody(parsed));
   expectPosition(parsed, node, {1, 14, 1, 15});
 }
 
@@ -176,8 +173,7 @@ TEST(Parse, Addition) {
       "defn f = { 1 + 2 }",
       Program{{Definition{FunctionDefinition{
           {}, "f", {}, binary<Addition>(literal(1), literal(2))}}}});
-  const auto& node =
-      asNode<Addition>(firstFunctionBody(parsed), "function body");
+  const auto& node = asNode<Addition>(firstFunctionBody(parsed));
   expectPosition(parsed, node, {1, 14, 1, 15});
 }
 
@@ -244,8 +240,8 @@ TEST(Parse, FunctionWithParameters) {
                         "f",
                         {"x", "y"},
                         binary<Addition>(variable("x"), variable("y"))}}}});
-  const auto& function = asNode<FunctionDefinition>(
-      parsed.ast.definitions.front(), "top-level function definition");
+  const auto& function =
+      asNode<FunctionDefinition>(parsed.ast.definitions.front());
   expectPosition(parsed, function, {1, 1, 1, 5});
 }
 
@@ -256,8 +252,8 @@ TEST(Parse, DataType) {
           {},
           "Bool",
           {Constructor{{}, "True", {}}, Constructor{{}, "False", {}}}}}}});
-  const auto& data_type = asNode<DataTypeDefinition>(
-      parsed.ast.definitions.front(), "top-level data definition");
+  const auto& data_type =
+      asNode<DataTypeDefinition>(parsed.ast.definitions.front());
   expectPosition(parsed, data_type, {1, 1, 1, 5});
   expectPosition(parsed, data_type.constructors.front(), {1, 15, 1, 19});
 }
@@ -286,10 +282,9 @@ TEST(Parse, CaseExpression) {
   const auto& case_expression = firstFunctionCaseBody(parsed);
   const auto& first_branch = case_expression.branches.front();
   const auto& second_branch = case_expression.branches.back();
-  const auto& first_pattern =
-      asNode<ConstructorPattern>(first_branch.pattern, "case branch pattern");
+  const auto& first_pattern = asNode<ConstructorPattern>(first_branch.pattern);
   const auto& second_pattern =
-      asNode<ConstructorPattern>(second_branch.pattern, "case branch pattern");
+      asNode<ConstructorPattern>(second_branch.pattern);
 
   expectPosition(parsed, first_pattern, {1, 26, 1, 29});
   expectPosition(parsed, first_branch, {1, 26, 1, 29});
@@ -353,15 +348,13 @@ TEST(Parse, RepresentativeNodesIndexIntoPositions) {
                    "List",
                    {Constructor{{}, "Nil", {}},
                     Constructor{{}, "Cons", {"Int", "List"}}}}}}});
-  const auto& function = asNode<FunctionDefinition>(
-      parsed.ast.definitions.front(), "top-level function definition");
-  const auto& case_expression =
-      asNode<CaseExpression>(*function.body, "function body");
+  const auto& function =
+      asNode<FunctionDefinition>(parsed.ast.definitions.front());
+  const auto& case_expression = asNode<CaseExpression>(*function.body);
   const auto& branch = case_expression.branches.front();
-  const auto& pattern =
-      asNode<ConstructorPattern>(branch.pattern, "case branch pattern");
-  const auto& data_type = asNode<DataTypeDefinition>(
-      parsed.ast.definitions.back(), "top-level data definition");
+  const auto& pattern = asNode<ConstructorPattern>(branch.pattern);
+  const auto& data_type =
+      asNode<DataTypeDefinition>(parsed.ast.definitions.back());
 
   expectPosition(parsed, function, {1, 1, 1, 5});
   expectPosition(parsed, case_expression, {1, 14, 1, 18});
