@@ -14,19 +14,11 @@
 #include "parsing/ast_traits.hpp"
 #include "parsing/parse.hpp"
 #include "tokenization/tokenize.hpp"
-#include "util/variant.hpp"
-
 // NOLINTBEGIN
 
 using namespace ast;
-using util::visitNode;
 
 namespace {
-
-template <typename Expected, typename Node>
-[[nodiscard]] const Expected& asNode(const Node& node) {
-  return std::get<Expected>(util::variantOf(node));
-}
 
 parsing::ParsedProgram parseSource(std::string_view source) {
   return parsing::parse(tokenization::tokenize(source));
@@ -92,22 +84,22 @@ void expectPosition(const parsing::ParsedProgram& parsed, const Node& node,
 [[nodiscard]] const Expression& firstFunctionBody(
     const parsing::ParsedProgram& parsed) {
   const auto& definition =
-      asNode<FunctionDefinition>(parsed.ast.definitions.front());
+      std::get<FunctionDefinition>(parsed.ast.definitions.front());
   return *definition.body;
 }
 
 [[nodiscard]] const CaseExpression& firstFunctionCaseBody(
     const parsing::ParsedProgram& parsed) {
-  return asNode<CaseExpression>(firstFunctionBody(parsed));
+  return std::get<CaseExpression>(firstFunctionBody(parsed));
 }
 
 void collectNodeIds(const Pattern& pattern, std::vector<NodeId>& node_ids) {
-  visitNode(pattern, [&](const auto& node) { node_ids.push_back(node.id); });
+  std::visit([&](const auto& node) { node_ids.push_back(node.id); }, pattern);
 }
 
 void collectNodeIds(const Expression& expression,
                     std::vector<NodeId>& node_ids) {
-  visitNode(expression, [&](const auto& node) {
+  std::visit([&](const auto& node) {
     using NodeType = std::remove_cvref_t<decltype(node)>;
     node_ids.push_back(node.id);
     if constexpr (ast::IsBinaryOperator<NodeType>) {
@@ -124,12 +116,12 @@ void collectNodeIds(const Expression& expression,
         collectNodeIds(*branch.body, node_ids);
       }
     }
-  });
+  }, expression);
 }
 
 void collectNodeIds(const Definition& definition,
                     std::vector<NodeId>& node_ids) {
-  visitNode(definition, [&](const auto& node) {
+  std::visit([&](const auto& node) {
     using NodeType = std::remove_cvref_t<decltype(node)>;
     node_ids.push_back(node.id);
     if constexpr (std::same_as<NodeType, FunctionDefinition>) {
@@ -139,7 +131,7 @@ void collectNodeIds(const Definition& definition,
         node_ids.push_back(constructor.id);
       }
     }
-  });
+  }, definition);
 }
 
 [[nodiscard]] std::vector<NodeId> collectNodeIds(const Program& program) {
@@ -156,7 +148,7 @@ TEST(Parse, NumericLiteral) {
   auto parsed = expectProgram(
       "defn f = { 42 }",
       Program{{Definition{FunctionDefinition{{}, "f", {}, literal(42)}}}});
-  const auto& node = asNode<IntLiteral>(firstFunctionBody(parsed));
+  const auto& node = std::get<IntLiteral>(firstFunctionBody(parsed));
   expectPosition(parsed, node, {1, 12, 1, 14});
 }
 
@@ -164,7 +156,7 @@ TEST(Parse, Variable) {
   auto parsed = expectProgram(
       "defn f x = { x }",
       Program{{Definition{FunctionDefinition{{}, "f", {"x"}, variable("x")}}}});
-  const auto& node = asNode<Variable>(firstFunctionBody(parsed));
+  const auto& node = std::get<Variable>(firstFunctionBody(parsed));
   expectPosition(parsed, node, {1, 14, 1, 15});
 }
 
@@ -173,7 +165,7 @@ TEST(Parse, Addition) {
       "defn f = { 1 + 2 }",
       Program{{Definition{FunctionDefinition{
           {}, "f", {}, binary<Addition>(literal(1), literal(2))}}}});
-  const auto& node = asNode<Addition>(firstFunctionBody(parsed));
+  const auto& node = std::get<Addition>(firstFunctionBody(parsed));
   expectPosition(parsed, node, {1, 14, 1, 15});
 }
 
@@ -241,7 +233,7 @@ TEST(Parse, FunctionWithParameters) {
                         {"x", "y"},
                         binary<Addition>(variable("x"), variable("y"))}}}});
   const auto& function =
-      asNode<FunctionDefinition>(parsed.ast.definitions.front());
+      std::get<FunctionDefinition>(parsed.ast.definitions.front());
   expectPosition(parsed, function, {1, 1, 1, 5});
 }
 
@@ -253,7 +245,7 @@ TEST(Parse, DataType) {
           "Bool",
           {Constructor{{}, "True", {}}, Constructor{{}, "False", {}}}}}}});
   const auto& data_type =
-      asNode<DataTypeDefinition>(parsed.ast.definitions.front());
+      std::get<DataTypeDefinition>(parsed.ast.definitions.front());
   expectPosition(parsed, data_type, {1, 1, 1, 5});
   expectPosition(parsed, data_type.constructors.front(), {1, 15, 1, 19});
 }
@@ -282,9 +274,9 @@ TEST(Parse, CaseExpression) {
   const auto& case_expression = firstFunctionCaseBody(parsed);
   const auto& first_branch = case_expression.branches.front();
   const auto& second_branch = case_expression.branches.back();
-  const auto& first_pattern = asNode<ConstructorPattern>(first_branch.pattern);
+  const auto& first_pattern = std::get<ConstructorPattern>(first_branch.pattern);
   const auto& second_pattern =
-      asNode<ConstructorPattern>(second_branch.pattern);
+      std::get<ConstructorPattern>(second_branch.pattern);
 
   expectPosition(parsed, first_pattern, {1, 26, 1, 29});
   expectPosition(parsed, first_branch, {1, 26, 1, 29});
@@ -349,12 +341,12 @@ TEST(Parse, RepresentativeNodesIndexIntoPositions) {
                    {Constructor{{}, "Nil", {}},
                     Constructor{{}, "Cons", {"Int", "List"}}}}}}});
   const auto& function =
-      asNode<FunctionDefinition>(parsed.ast.definitions.front());
-  const auto& case_expression = asNode<CaseExpression>(*function.body);
+      std::get<FunctionDefinition>(parsed.ast.definitions.front());
+  const auto& case_expression = std::get<CaseExpression>(*function.body);
   const auto& branch = case_expression.branches.front();
-  const auto& pattern = asNode<ConstructorPattern>(branch.pattern);
+  const auto& pattern = std::get<ConstructorPattern>(branch.pattern);
   const auto& data_type =
-      asNode<DataTypeDefinition>(parsed.ast.definitions.back());
+      std::get<DataTypeDefinition>(parsed.ast.definitions.back());
 
   expectPosition(parsed, function, {1, 1, 1, 5});
   expectPosition(parsed, case_expression, {1, 14, 1, 18});
