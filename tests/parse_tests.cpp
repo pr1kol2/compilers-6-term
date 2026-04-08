@@ -99,39 +99,43 @@ void collectNodeIds(const Pattern& pattern, std::vector<NodeId>& node_ids) {
 
 void collectNodeIds(const Expression& expression,
                     std::vector<NodeId>& node_ids) {
-  std::visit([&](const auto& node) {
-    using NodeType = std::remove_cvref_t<decltype(node)>;
-    node_ids.push_back(node.id);
-    if constexpr (ast::IsBinaryOperator<NodeType>) {
-      collectNodeIds(*node.left_operand, node_ids);
-      collectNodeIds(*node.right_operand, node_ids);
-    } else if constexpr (std::same_as<NodeType, Application>) {
-      collectNodeIds(*node.function, node_ids);
-      collectNodeIds(*node.argument, node_ids);
-    } else if constexpr (std::same_as<NodeType, CaseExpression>) {
-      collectNodeIds(*node.scrutinee, node_ids);
-      for (const auto& branch : node.branches) {
-        node_ids.push_back(branch.id);
-        collectNodeIds(branch.pattern, node_ids);
-        collectNodeIds(*branch.body, node_ids);
-      }
-    }
-  }, expression);
+  std::visit(
+      [&](const auto& node) {
+        using NodeType = std::remove_cvref_t<decltype(node)>;
+        node_ids.push_back(node.id);
+        if constexpr (ast::IsBinaryOperator<NodeType>) {
+          collectNodeIds(*node.left_operand, node_ids);
+          collectNodeIds(*node.right_operand, node_ids);
+        } else if constexpr (std::same_as<NodeType, Application>) {
+          collectNodeIds(*node.function, node_ids);
+          collectNodeIds(*node.argument, node_ids);
+        } else if constexpr (std::same_as<NodeType, CaseExpression>) {
+          collectNodeIds(*node.scrutinee, node_ids);
+          for (const auto& branch : node.branches) {
+            node_ids.push_back(branch.id);
+            collectNodeIds(branch.pattern, node_ids);
+            collectNodeIds(*branch.body, node_ids);
+          }
+        }
+      },
+      expression);
 }
 
 void collectNodeIds(const Definition& definition,
                     std::vector<NodeId>& node_ids) {
-  std::visit([&](const auto& node) {
-    using NodeType = std::remove_cvref_t<decltype(node)>;
-    node_ids.push_back(node.id);
-    if constexpr (std::same_as<NodeType, FunctionDefinition>) {
-      collectNodeIds(*node.body, node_ids);
-    } else if constexpr (std::same_as<NodeType, DataTypeDefinition>) {
-      for (const auto& constructor : node.constructors) {
-        node_ids.push_back(constructor.id);
-      }
-    }
-  }, definition);
+  std::visit(
+      [&](const auto& node) {
+        using NodeType = std::remove_cvref_t<decltype(node)>;
+        node_ids.push_back(node.id);
+        if constexpr (std::same_as<NodeType, FunctionDefinition>) {
+          collectNodeIds(*node.body, node_ids);
+        } else if constexpr (std::same_as<NodeType, DataTypeDefinition>) {
+          for (const auto& constructor : node.constructors) {
+            node_ids.push_back(constructor.id);
+          }
+        }
+      },
+      definition);
 }
 
 [[nodiscard]] std::vector<NodeId> collectNodeIds(const Program& program) {
@@ -274,7 +278,8 @@ TEST(Parse, CaseExpression) {
   const auto& case_expression = firstFunctionCaseBody(parsed);
   const auto& first_branch = case_expression.branches.front();
   const auto& second_branch = case_expression.branches.back();
-  const auto& first_pattern = std::get<ConstructorPattern>(first_branch.pattern);
+  const auto& first_pattern =
+      std::get<ConstructorPattern>(first_branch.pattern);
   const auto& second_pattern =
       std::get<ConstructorPattern>(second_branch.pattern);
 
