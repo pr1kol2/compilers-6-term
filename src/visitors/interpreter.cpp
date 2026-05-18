@@ -104,6 +104,7 @@ int applyBinaryOp(int left, int right) {
     }
     return left / right;
   }
+  std::unreachable();
 }
 
 EvalResult evaluate(const ast::Expression& expression, const Environment& env,

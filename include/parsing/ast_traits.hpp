@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <string_view>
+#include <utility>
 
 #include "parsing/ast.hpp"
 
@@ -24,6 +25,7 @@ constexpr std::string_view symbolOf() {
   } else if constexpr (std::same_as<Op, Division>) {
     return "/";
   }
+  std::unreachable();
 }
 
 }  // namespace ast
