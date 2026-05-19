@@ -1,8 +1,8 @@
 #pragma once
 
-#include <concepts>
+#include <cstdint>
 #include <string_view>
-#include <utility>
+#include <type_traits>
 
 #include "parsing/ast.hpp"
 
@@ -14,18 +14,48 @@ concept IsBinaryOperator = requires(const Node& node) {
   node.right_operand;
 };
 
+enum class BinaryOperatorKind : std::uint8_t {
+  Addition,
+  Subtraction,
+  Multiplication,
+  Division,
+};
+
+template <typename Op>
+struct BinaryOperatorTraits;
+
+template <>
+struct BinaryOperatorTraits<Addition> {
+  static constexpr BinaryOperatorKind kind = BinaryOperatorKind::Addition;
+  static constexpr std::string_view symbol = "+";
+};
+
+template <>
+struct BinaryOperatorTraits<Subtraction> {
+  static constexpr BinaryOperatorKind kind = BinaryOperatorKind::Subtraction;
+  static constexpr std::string_view symbol = "-";
+};
+
+template <>
+struct BinaryOperatorTraits<Multiplication> {
+  static constexpr BinaryOperatorKind kind = BinaryOperatorKind::Multiplication;
+  static constexpr std::string_view symbol = "*";
+};
+
+template <>
+struct BinaryOperatorTraits<Division> {
+  static constexpr BinaryOperatorKind kind = BinaryOperatorKind::Division;
+  static constexpr std::string_view symbol = "/";
+};
+
+template <IsBinaryOperator Op>
+constexpr BinaryOperatorKind kindOf() {
+  return BinaryOperatorTraits<std::remove_cvref_t<Op>>::kind;
+}
+
 template <IsBinaryOperator Op>
 constexpr std::string_view symbolOf() {
-  if constexpr (std::same_as<Op, Addition>) {
-    return "+";
-  } else if constexpr (std::same_as<Op, Subtraction>) {
-    return "-";
-  } else if constexpr (std::same_as<Op, Multiplication>) {
-    return "*";
-  } else if constexpr (std::same_as<Op, Division>) {
-    return "/";
-  }
-  std::unreachable();
+  return BinaryOperatorTraits<std::remove_cvref_t<Op>>::symbol;
 }
 
 }  // namespace ast
