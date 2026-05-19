@@ -85,7 +85,8 @@ class Scanner {
 
   std::vector<Token> tokens_;
   SVIterator it_;
-  const SVIterator end_;  // NOLINT
+  // NOLINTNEXTLINE (cppcoreguidelines-avoid-const-or-ref-data-members)
+  const SVIterator end_;
   util::Position pos_ = {
       .begin_line = 1, .begin_column = 1, .end_line = 1, .end_column = 1};
 

@@ -40,7 +40,8 @@ class Parser {
                                                     ast::ExpressionPtr);
 
   TokenIterator it_;
-  const TokenIterator end_;  // NOLINT
+  // NOLINTNEXTLINE (cppcoreguidelines-avoid-const-or-ref-data-members)
+  const TokenIterator end_;
   std::vector<util::Position> positions_;
 
   [[nodiscard]] bool atEnd() const { return it_ == end_; }
