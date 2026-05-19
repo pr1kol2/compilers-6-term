@@ -1,7 +1,9 @@
 #include "visitors/print_visitor.hpp"
 
 #include <format>
+#include <ranges>
 #include <string>
+#include <string_view>
 #include <variant>
 
 #include "parsing/ast.hpp"
@@ -12,29 +14,43 @@ namespace visitors {
 
 namespace {
 
+template <std::ranges::input_range Range, typename Formatter>
+std::string joinFormatted(const Range& range, std::string_view separator,
+                          Formatter formatter) {
+  std::string result;
+  for (const auto& item : range) {
+    if (!result.empty()) {
+      result += separator;
+    }
+    result += formatter(item);
+  }
+  return result;
+}
+
+std::string asString(std::string_view value) { return std::string(value); }
+
+template <std::ranges::input_range Range>
+std::string printHeadWithArguments(std::string_view head, const Range& args) {
+  auto tail = joinFormatted(args, " ", asString);
+  if (tail.empty()) {
+    return std::string(head);
+  }
+  return std::format("{} {}", head, tail);
+}
+
 std::string printPattern(const ast::Pattern& pattern) {
   return std::visit(
       util::overloaded{
           [](const ast::VariablePattern& vp) -> std::string { return vp.name; },
           [](const ast::ConstructorPattern& cp) -> std::string {
-            std::string result = cp.name;
-            for (const auto& arg : cp.arguments) {
-              result += ' ';
-              result += arg;
-            }
-            return result;
+            return printHeadWithArguments(cp.name, cp.arguments);
           },
       },
       pattern);
 }
 
 std::string printConstructor(const ast::Constructor& ctor) {
-  std::string result = ctor.name;
-  for (const auto& field : ctor.fields) {
-    result += ' ';
-    result += field;
-  }
-  return result;
+  return printHeadWithArguments(ctor.name, ctor.fields);
 }
 
 }  // namespace
@@ -55,15 +71,12 @@ std::string print(const ast::Expression& expr) {
                                print(*app.argument));
           },
           [](const ast::CaseExpression& ce) -> std::string {
-            std::string branches;
-            for (const auto& branch : ce.branches) {
-              if (!branches.empty()) {
-                branches += ' ';
-              }
-              branches +=
-                  std::format("{} -> {{ {} }}", printPattern(branch.pattern),
-                              print(*branch.body));
-            }
+            auto branches =
+                joinFormatted(ce.branches, " ", [](const auto& branch) {
+                  return std::format("{} -> {{ {} }}",
+                                     printPattern(branch.pattern),
+                                     print(*branch.body));
+                });
             return std::format("case {} of {{ {} }}", print(*ce.scrutinee),
                                branches);
           },
@@ -72,40 +85,29 @@ std::string print(const ast::Expression& expr) {
 }
 
 std::string print(const ast::Definition& definition) {
-  return std::visit(util::overloaded{
-                        [](const ast::FunctionDefinition& fd) -> std::string {
-                          std::string params;
-                          for (const auto& p : fd.parameters) {
-                            params += ' ';
-                            params += p;
-                          }
-                          return std::format("defn {}{} = {{ {} }}", fd.name,
-                                             params, print(*fd.body));
-                        },
-                        [](const ast::DataTypeDefinition& dt) -> std::string {
-                          std::string constructors;
-                          for (const auto& ctor : dt.constructors) {
-                            if (!constructors.empty()) {
-                              constructors += ", ";
-                            }
-                            constructors += printConstructor(ctor);
-                          }
-                          return std::format("data {} = {{ {} }}", dt.name,
-                                             constructors);
-                        },
-                    },
-                    definition);
+  return std::visit(
+      util::overloaded{
+          [](const ast::FunctionDefinition& fd) -> std::string {
+            auto params = joinFormatted(fd.parameters, " ", asString);
+            if (!params.empty()) {
+              params = std::format(" {}", params);
+            }
+            return std::format("defn {}{} = {{ {} }}", fd.name, params,
+                               print(*fd.body));
+          },
+          [](const ast::DataTypeDefinition& dt) -> std::string {
+            auto constructors =
+                joinFormatted(dt.constructors, ", ", printConstructor);
+            return std::format("data {} = {{ {} }}", dt.name, constructors);
+          },
+      },
+      definition);
 }
 
 std::string print(const ast::Program& program) {
-  std::string result;
-  for (const auto& def : program.definitions) {
-    if (!result.empty()) {
-      result += '\n';
-    }
-    result += print(def);
-  }
-  return result;
+  return joinFormatted(program.definitions, "\n", [](const auto& definition) {
+    return print(definition);
+  });
 }
 
 }  // namespace visitors
