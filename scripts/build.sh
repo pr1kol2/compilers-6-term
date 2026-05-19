@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-BUILD_DIR="build/release"
+BUILD_DIR="build/Release"
 
 cmake -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 cmake --build "${BUILD_DIR}"
