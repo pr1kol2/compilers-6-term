@@ -1,30 +1,21 @@
 #include <gtest/gtest.h>
 #include <stdexcept>
-#include <string>
 #include <string_view>
-#include <vector>
 
-#include "parsing/parse.hpp"
-#include "tokenization/tokenize.hpp"
+#include "semantics/symbol_table.hpp"
+#include "test_utils.hpp"
 #include "visitors/interpreter.hpp"
 
 // NOLINTBEGIN
 
-using visitors::ConstructedValue;
+using test_utils::constructed;
+using test_utils::parseSource;
 using visitors::Value;
 
 namespace {
 
-parsing::ParsedProgram parseSource(std::string_view source) {
-  return parsing::parse(tokenization::tokenize(source));
-}
-
 Value run(std::string_view source) {
-  return visitors::interpret(parseSource(source).ast);
-}
-
-Value constructed(std::string name, std::vector<Value> fields = {}) {
-  return ConstructedValue{std::move(name), std::move(fields)};
+  return visitors::interpret(parseSource(source));
 }
 
 }  // namespace
@@ -114,8 +105,25 @@ TEST(Interpreter, UndefinedVariable) {
   EXPECT_THROW(run("defn main = { x }"), std::runtime_error);
 }
 
+TEST(Interpreter, RejectsTypeErrorsBeforeExecution) {
+  EXPECT_THROW(run("data Bool = { True } defn main = { True + 1 }"),
+               std::runtime_error);
+}
+
+TEST(Interpreter, RejectsProvidedAnalysisErrorsBeforeExecution) {
+  auto parsed = parseSource("defn main = { 42 }");
+  semantics::AnalysisResult analysis;
+  analysis.diagnostics.push_back({
+      .message = "synthetic analysis error",
+  });
+
+  EXPECT_THROW(visitors::interpret(parsed, analysis), std::runtime_error);
+}
+
 TEST(Interpreter, NoMatchingBranch) {
   EXPECT_THROW(run("data AB = { A, B } "
                    "defn main = { case B of { A -> { 1 } } }"),
                std::runtime_error);
 }
+
+// NOLINTEND
