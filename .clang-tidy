@@ -9,7 +9,8 @@ Checks: >
   cppcoreguidelines-*,
   -readability-identifier-length,
   -modernize-use-trailing-return-type,
-  -modernize-use-designated-initializers
+  -modernize-use-designated-initializers,
+  -google-readability-todo
 
 CheckOptions:
   - key:             HeaderFilterRegex
