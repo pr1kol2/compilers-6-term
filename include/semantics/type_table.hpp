@@ -4,7 +4,6 @@
 #include <variant>
 #include <vector>
 
-#include "parsing/ast.hpp"
 #include "parsing/parse.hpp"
 #include "semantics/symbol_table.hpp"
 #include "util/box.hpp"
@@ -44,21 +43,16 @@ struct FunctionType {
 [[nodiscard]] Type dataType(SymbolId symbol);
 
 struct ConstructorSignature {
-  SymbolId constructor = kInvalidSymbolId;
   SymbolId data_type = kInvalidSymbolId;
   std::vector<Type> fields;
-  Type result = intType();
-  Type callable_type = intType();
 
   friend bool operator==(const ConstructorSignature&,
                          const ConstructorSignature&) = default;
 };
 
 struct FunctionSignature {
-  SymbolId function = kInvalidSymbolId;
   std::vector<Type> parameters;
   Type result = intType();
-  Type callable_type = intType();
 
   friend bool operator==(const FunctionSignature&,
                          const FunctionSignature&) = default;
@@ -66,16 +60,12 @@ struct FunctionSignature {
 
 class TypeTable {
  public:
-  [[nodiscard]] const Type* typeOfNode(ast::NodeId node_id) const;
-  [[nodiscard]] const Type* typeOfSymbol(SymbolId symbol_id) const;
   [[nodiscard]] const ConstructorSignature* constructorSignature(
       SymbolId symbol_id) const;
   [[nodiscard]] const FunctionSignature* functionSignature(
       SymbolId symbol_id) const;
 
  private:
-  std::unordered_map<ast::NodeId, Type> node_types_;
-  std::unordered_map<SymbolId, Type> symbol_types_;
   std::unordered_map<SymbolId, ConstructorSignature> constructor_signatures_;
   std::unordered_map<SymbolId, FunctionSignature> function_signatures_;
 

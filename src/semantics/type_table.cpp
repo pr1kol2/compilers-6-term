@@ -43,18 +43,13 @@ using InternalType = std::variant<InternalIntType, InternalDataType,
                                   InternalFunctionType, InternalTypeVariable>;
 
 struct InternalConstructorSignature {
-  SymbolId constructor = kInvalidSymbolId;
   SymbolId data_type = kInvalidSymbolId;
   std::vector<TypeId> fields;
-  TypeId result = kInvalidTypeId;
-  TypeId callable_type = kInvalidTypeId;
 };
 
 struct InternalFunctionSignature {
-  SymbolId function = kInvalidSymbolId;
   std::vector<TypeId> parameters;
   TypeId result = kInvalidTypeId;
-  TypeId callable_type = kInvalidTypeId;
 };
 
 }  // namespace
@@ -82,20 +77,6 @@ bool containsFunctionType(const Type& type) {
 }
 
 }  // namespace
-
-const Type* TypeTable::typeOfNode(ast::NodeId node_id) const {
-  if (auto it = node_types_.find(node_id); it != node_types_.end()) {
-    return &it->second;
-  }
-  return nullptr;
-}
-
-const Type* TypeTable::typeOfSymbol(SymbolId symbol_id) const {
-  if (auto it = symbol_types_.find(symbol_id); it != symbol_types_.end()) {
-    return &it->second;
-  }
-  return nullptr;
-}
 
 const ConstructorSignature* TypeTable::constructorSignature(
     SymbolId symbol_id) const {
@@ -143,7 +124,6 @@ class TypeAnalyzer {
 
   std::vector<InternalType> types_;
   std::unordered_map<SymbolId, TypeId> symbol_types_;
-  std::unordered_map<ast::NodeId, TypeId> node_types_;
   std::unordered_map<SymbolId, InternalConstructorSignature>
       constructor_signatures_;
   std::unordered_map<SymbolId, InternalFunctionSignature> function_signatures_;
@@ -365,6 +345,7 @@ class TypeAnalyzer {
       const auto* type_symbol =
           scopes().localSymbol(ScopeTree::rootScopeId(), field);
       if (type_symbol == nullptr || !isTypeSymbol(type_symbol->kind)) {
+        addError(constructor.id, std::format("Unknown type '{}'", field));
         return;
       }
       fields.push_back(typeOfTypeSymbol(*type_symbol));
@@ -375,11 +356,8 @@ class TypeAnalyzer {
     symbol_types_[constructor_symbol->id] = callable_type;
     constructor_signatures_.emplace(constructor_symbol->id,
                                     InternalConstructorSignature{
-                                        .constructor = constructor_symbol->id,
                                         .data_type = data_symbol.id,
                                         .fields = std::move(fields),
-                                        .result = result,
-                                        .callable_type = callable_type,
                                     });
   }
 
@@ -427,10 +405,8 @@ class TypeAnalyzer {
     symbol_types_[function_symbol->id] = callable_type;
     function_signatures_.emplace(function_symbol->id,
                                  InternalFunctionSignature{
-                                     .function = function_symbol->id,
                                      .parameters = std::move(parameters),
                                      .result = result,
-                                     .callable_type = callable_type,
                                  });
   }
 
@@ -478,14 +454,12 @@ class TypeAnalyzer {
                        },
                    },
                    expression);
-    node_types_[expressionId(expression)] = type;
     return type;
   }
 
-  [[nodiscard]] TypeId inferIntLiteral(const ast::IntLiteral& literal) {
-    const auto type = makeInt();
-    node_types_[literal.id] = type;
-    return type;
+  [[nodiscard]] TypeId inferIntLiteral(
+      [[maybe_unused]] const ast::IntLiteral& literal) {
+    return makeInt();
   }
 
   [[nodiscard]] TypeId inferVariable(const ast::Variable& variable) {
@@ -495,7 +469,6 @@ class TypeAnalyzer {
     }
 
     if (auto it = symbol_types_.find(symbol->id); it != symbol_types_.end()) {
-      node_types_[variable.id] = it->second;
       return it->second;
     }
 
@@ -513,7 +486,6 @@ class TypeAnalyzer {
           "arithmetic right operand");
 
     const auto result = makeInt();
-    node_types_[op.id] = result;
     return result;
   }
 
@@ -524,7 +496,6 @@ class TypeAnalyzer {
     const auto expected_function = makeFunction(argument, result);
     unify(function, expected_function, application.id, "function application");
 
-    node_types_[application.id] = result;
     return result;
   }
 
@@ -539,7 +510,6 @@ class TypeAnalyzer {
       unify(body, result, expressionId(*branch.body), "case branch result");
     }
 
-    node_types_[case_expression.id] = result;
     return result;
   }
 
@@ -562,7 +532,6 @@ class TypeAnalyzer {
     if (symbol != nullptr) {
       symbol_types_[symbol->id] = expected;
     }
-    node_types_[pattern.id] = expected;
   }
 
   void inferConstructorPattern(const ast::ConstructorPattern& pattern,
@@ -577,9 +546,16 @@ class TypeAnalyzer {
       return;
     }
 
-    unify(expected, signature->second.result, pattern.id,
+    unify(expected, makeData(signature->second.data_type), pattern.id,
           "constructor pattern");
-    node_types_[pattern.id] = signature->second.result;
+
+    if (pattern.arguments.size() != signature->second.fields.size()) {
+      addError(pattern.id,
+               std::format("Constructor '{}' expects {} arguments, got {}",
+                           pattern.name, signature->second.fields.size(),
+                           pattern.arguments.size()));
+      return;
+    }
 
     const auto* bindings = scopes().declaredSymbolIds(pattern.id);
     if (bindings == nullptr ||
@@ -600,15 +576,13 @@ class TypeAnalyzer {
 
   void finalizeTypes() {
     finalizeSymbolTypes();
-    finalizeNodeTypes();
     finalizeConstructorSignatures();
     finalizeFunctionSignatures();
   }
 
   void finalizeSymbolTypes() {
     for (const auto& [symbol_id, type_id] : symbol_types_) {
-      if (auto type = materialize(type_id); type.has_value()) {
-        result_.types.symbol_types_.emplace(symbol_id, std::move(*type));
+      if (materialize(type_id).has_value()) {
         continue;
       }
 
@@ -619,31 +593,17 @@ class TypeAnalyzer {
     }
   }
 
-  void finalizeNodeTypes() {
-    for (const auto& [node_id, type_id] : node_types_) {
-      if (auto type = materialize(type_id); type.has_value()) {
-        result_.types.node_types_.emplace(node_id, std::move(*type));
-      }
-    }
-  }
-
   void finalizeConstructorSignatures() {
     for (const auto& [symbol_id, signature] : constructor_signatures_) {
       auto fields = materializeAll(signature.fields);
-      auto result = materialize(signature.result);
-      auto callable_type = materialize(signature.callable_type);
-      if (!fields.has_value() || !result.has_value() ||
-          !callable_type.has_value()) {
+      if (!fields.has_value()) {
         continue;
       }
 
       result_.types.constructor_signatures_.emplace(
           symbol_id, ConstructorSignature{
-                         .constructor = signature.constructor,
                          .data_type = signature.data_type,
                          .fields = std::move(*fields),
-                         .result = std::move(*result),
-                         .callable_type = std::move(*callable_type),
                      });
     }
   }
@@ -652,18 +612,14 @@ class TypeAnalyzer {
     for (const auto& [symbol_id, signature] : function_signatures_) {
       auto parameters = materializeAll(signature.parameters);
       auto result = materialize(signature.result);
-      auto callable_type = materialize(signature.callable_type);
-      if (!parameters.has_value() || !result.has_value() ||
-          !callable_type.has_value()) {
+      if (!parameters.has_value() || !result.has_value()) {
         continue;
       }
 
       result_.types.function_signatures_.emplace(
           symbol_id, FunctionSignature{
-                         .function = signature.function,
                          .parameters = std::move(*parameters),
                          .result = std::move(*result),
-                         .callable_type = std::move(*callable_type),
                      });
     }
   }

@@ -33,6 +33,7 @@ using Environment = std::unordered_map<semantics::SymbolId, Value>;
 
 struct EvaluationContext {
   const semantics::ScopeTree* scopes = nullptr;
+  const semantics::TypeTable* types = nullptr;
 };
 
 Value asValue(EvalResult result) {
@@ -50,11 +51,16 @@ int asInt(const Value& value) {
   return *n;
 }
 
-[[nodiscard]] std::size_t constructorArity(const semantics::Symbol& symbol) {
+[[nodiscard]] std::size_t constructorArity(const semantics::Symbol& symbol,
+                                           const semantics::TypeTable& types) {
   if (symbol.kind != semantics::SymbolKind::Constructor) {
     throw std::runtime_error("Expected constructor symbol");
   }
-  return symbol.arity;
+  const auto* signature = types.constructorSignature(symbol.id);
+  if (signature == nullptr) {
+    throw std::runtime_error("Constructor has no type signature");
+  }
+  return signature->fields.size();
 }
 
 [[nodiscard]] const ast::FunctionDefinition* findFunctionById(
@@ -150,7 +156,7 @@ EvalResult evaluate(const ast::Expression& expression, const Environment& env,
               throw std::runtime_error("Undefined variable: " + var.name);
             }
             if (symbol->kind == semantics::SymbolKind::Constructor) {
-              const auto arity = constructorArity(*symbol);
+              const auto arity = constructorArity(*symbol, *context.types);
               if (arity == 0) {
                 return Value{ConstructedValue{symbol->name, {}}};
               }
@@ -202,32 +208,6 @@ EvalResult evaluate(const ast::Expression& expression, const Environment& env,
 
 }  // namespace
 
-std::ostream& operator<<(std::ostream& os, const Value& value) {
-  std::visit(util::overloaded{
-                 [&](int n) { os << n; },
-                 [&](const Box<ConstructedValue>& cv) {
-                   if (cv->fields.empty()) {
-                     os << cv->name;
-                   } else {
-                     os << '(' << cv->name;
-                     for (const auto& field : cv->fields) {
-                       os << ' ' << field;
-                     }
-                     os << ')';
-                   }
-                 },
-             },
-             value);
-  return os;
-}
-
-Value interpret(const ast::Program& program) {
-  return interpret(parsing::ParsedProgram{
-      .ast = program,
-      .positions = {},
-  });
-}
-
 Value interpret(const parsing::ParsedProgram& parsed) {
   auto analysis = semantics::analyze(parsed);
   return interpret(parsed, analysis);
@@ -260,6 +240,7 @@ Value interpret(const parsing::ParsedProgram& parsed,
   return asValue(evaluate(*main_fn->body, env,
                           EvaluationContext{
                               .scopes = &analysis.scopes,
+                              .types = &type_analysis.types,
                           }));
 }
 

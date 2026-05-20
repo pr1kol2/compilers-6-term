@@ -42,17 +42,14 @@ enum class SymbolKind : std::uint8_t {
 
 struct Symbol {
   SymbolId id = kInvalidSymbolId;
-  ScopeId scope = kInvalidScopeId;
   std::string name;
   SymbolKind kind = SymbolKind::BuiltinType;
   ast::NodeId declaration = ast::kInvalidNodeId;
-  std::size_t arity = 0;
 
   friend bool operator==(const Symbol&, const Symbol&) = default;
 };
 
 struct Scope {
-  ScopeId id = kInvalidScopeId;
   ScopeId parent = kInvalidScopeId;
   ast::NodeId owner = ast::kInvalidNodeId;
   std::unordered_map<std::string, SymbolId, StringHash, std::equal_to<>>

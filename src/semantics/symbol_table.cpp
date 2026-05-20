@@ -73,7 +73,6 @@ std::size_t StringHash::operator()(std::string_view value) const noexcept {
 
 ScopeTree::ScopeTree() {
   scopes_.push_back(Scope{
-      .id = 0,
       .parent = kInvalidScopeId,
       .owner = ast::kInvalidNodeId,
       .symbols = {},
@@ -160,7 +159,6 @@ const Symbol* ScopeTree::declaredSymbol(ast::NodeId node_id,
 ScopeId ScopeTree::createScope(ScopeId parent, ast::NodeId owner) {
   const auto id = scopes_.size();
   scopes_.push_back(Scope{
-      .id = id,
       .parent = parent,
       .owner = owner,
       .symbols = {},
@@ -192,7 +190,6 @@ std::optional<SymbolId> ScopeTree::addLocalSymbol(ScopeId scope_id,
 
   const auto id = symbols_.size();
   symbol.id = id;
-  symbol.scope = scope_id;
   symbols_.push_back(std::move(symbol));
   symbols.emplace(name, id);
 
@@ -236,7 +233,6 @@ class Analyzer {
                                      .name = fd.name,
                                      .kind = SymbolKind::Function,
                                      .declaration = fd.id,
-                                     .arity = fd.parameters.size(),
                                  });
                      },
                      [&](const ast::DataTypeDefinition& dt) {
@@ -245,7 +241,6 @@ class Analyzer {
                                      .name = dt.name,
                                      .kind = SymbolKind::DataType,
                                      .declaration = dt.id,
-                                     .arity = dt.constructors.size(),
                                  });
                        for (const auto& ctor : dt.constructors) {
                          addSymbol(ScopeTree::rootScopeId(),
@@ -253,7 +248,6 @@ class Analyzer {
                                        .name = ctor.name,
                                        .kind = SymbolKind::Constructor,
                                        .declaration = ctor.id,
-                                       .arity = ctor.fields.size(),
                                    });
                        }
                      },
@@ -274,7 +268,6 @@ class Analyzer {
                 for (const auto& ctor : dt.constructors) {
                   result_.scopes.bindNodeToScope(ctor.id,
                                                  ScopeTree::rootScopeId());
-                  checkConstructorFields(ctor);
                 }
               },
           },
@@ -304,16 +297,6 @@ class Analyzer {
     }
 
     bindExpression(*fd.body, function_scope);
-  }
-
-  void checkConstructorFields(const ast::Constructor& ctor) {
-    for (const auto& field : ctor.fields) {
-      const auto* symbol =
-          result_.scopes.localSymbol(ScopeTree::rootScopeId(), field);
-      if (symbol == nullptr || !isTypeSymbol(symbol->kind)) {
-        addError(ctor.id, std::format("Unknown type '{}'", field));
-      }
-    }
   }
 
   void bindExpression(const ast::Expression& expression, ScopeId scope_id) {
@@ -410,11 +393,6 @@ class Analyzer {
     if (symbol == nullptr || symbol->kind != SymbolKind::Constructor) {
       addError(pattern.id,
                std::format("Undefined constructor '{}'", pattern.name));
-    } else if (symbol->arity != pattern.arguments.size()) {
-      addError(
-          pattern.id,
-          std::format("Constructor '{}' expects {} arguments, got {}",
-                      pattern.name, symbol->arity, pattern.arguments.size()));
     } else {
       result_.scopes.bindNodeToSymbol(pattern.id, symbol->id);
     }
