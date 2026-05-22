@@ -61,27 +61,25 @@ class ScopeTree {
  public:
   ScopeTree();
 
-  [[nodiscard]] static ScopeId rootScopeId() { return 0; }
-  [[nodiscard]] const Scope& scope(ScopeId id) const;
-  [[nodiscard]] const Symbol& symbol(SymbolId id) const;
+  [[nodiscard]] static ScopeId getRootScopeId() { return 0; }
+  [[nodiscard]] const Scope& getScope(ScopeId id) const;
+  [[nodiscard]] const Symbol& getSymbol(SymbolId id) const;
 
-  [[nodiscard]] std::optional<ScopeId> scopeOf(ast::NodeId node_id) const;
-  [[nodiscard]] std::optional<SymbolId> localSymbolId(
-      ScopeId scope_id, std::string_view name) const;
-  [[nodiscard]] const Symbol* localSymbol(ScopeId scope_id,
-                                          std::string_view name) const;
-  [[nodiscard]] std::optional<SymbolId> resolveId(ScopeId scope_id,
-                                                  std::string_view name) const;
-  [[nodiscard]] std::optional<SymbolId> resolvedSymbolId(
+  [[nodiscard]] std::optional<ScopeId> getScopeId(ast::NodeId node_id) const;
+  [[nodiscard]] const Symbol* getLocalSymbol(ScopeId scope_id,
+                                             std::string_view name) const;
+  [[nodiscard]] const Symbol* getResolvedSymbol(ast::NodeId node_id) const;
+  [[nodiscard]] const std::vector<SymbolId>* getDeclaredSymbolIds(
       ast::NodeId node_id) const;
-  [[nodiscard]] const Symbol* resolvedSymbol(ast::NodeId node_id) const;
-  [[nodiscard]] const std::vector<SymbolId>* declaredSymbolIds(
-      ast::NodeId node_id) const;
-  [[nodiscard]] const Symbol* declaredSymbol(ast::NodeId node_id,
-                                             SymbolKind kind) const;
+  [[nodiscard]] const Symbol* getDeclaredSymbol(ast::NodeId node_id,
+                                                SymbolKind kind) const;
 
  private:
   [[nodiscard]] ScopeId createScope(ScopeId parent, ast::NodeId owner);
+  [[nodiscard]] std::optional<SymbolId> getLocalSymbolId(
+      ScopeId scope_id, std::string_view name) const;
+  [[nodiscard]] std::optional<SymbolId> getResolvedSymbolId(
+      ScopeId scope_id, std::string_view name) const;
   void bindNodeToScope(ast::NodeId node_id, ScopeId scope_id);
   void bindNodeToSymbol(ast::NodeId node_id, SymbolId symbol_id);
   [[nodiscard]] std::optional<SymbolId> addLocalSymbol(ScopeId scope_id,
@@ -103,9 +101,10 @@ struct Diagnostic {
 
 [[nodiscard]] std::string positionOf(const parsing::ParsedProgram& parsed,
                                      ast::NodeId node_id);
-[[nodiscard]] Diagnostic makeDiagnostic(const parsing::ParsedProgram& parsed,
-                                        ast::NodeId node_id,
+[[nodiscard]] Diagnostic makeDiagnostic(ast::NodeId node_id,
                                         std::string message);
+[[nodiscard]] std::string formatDiagnostic(const parsing::ParsedProgram& parsed,
+                                           const Diagnostic& diagnostic);
 
 struct AnalysisResult {
   ScopeTree scopes;

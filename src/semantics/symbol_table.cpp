@@ -58,13 +58,17 @@ std::string positionOf(const parsing::ParsedProgram& parsed,
   return parsed.positions.at(node_id).toString();
 }
 
-Diagnostic makeDiagnostic(const parsing::ParsedProgram& parsed,
-                          ast::NodeId node_id, std::string message) {
+Diagnostic makeDiagnostic(ast::NodeId node_id, std::string message) {
   return Diagnostic{
       .node_id = node_id,
-      .message = std::format("{} at {}", std::move(message),
-                             positionOf(parsed, node_id)),
+      .message = std::move(message),
   };
+}
+
+std::string formatDiagnostic(const parsing::ParsedProgram& parsed,
+                             const Diagnostic& diagnostic) {
+  return std::format("{} at {}", diagnostic.message,
+                     positionOf(parsed, diagnostic.node_id));
 }
 
 std::size_t StringHash::operator()(std::string_view value) const noexcept {
@@ -80,58 +84,55 @@ ScopeTree::ScopeTree() {
   });
 }
 
-const Scope& ScopeTree::scope(ScopeId id) const { return scopes_.at(id); }
+const Scope& ScopeTree::getScope(ScopeId id) const { return scopes_.at(id); }
 
-const Symbol& ScopeTree::symbol(SymbolId id) const { return symbols_.at(id); }
+const Symbol& ScopeTree::getSymbol(SymbolId id) const {
+  return symbols_.at(id);
+}
 
-std::optional<ScopeId> ScopeTree::scopeOf(ast::NodeId node_id) const {
+std::optional<ScopeId> ScopeTree::getScopeId(ast::NodeId node_id) const {
   if (auto it = scope_by_node_.find(node_id); it != scope_by_node_.end()) {
     return it->second;
   }
   return std::nullopt;
 }
 
-std::optional<SymbolId> ScopeTree::localSymbolId(ScopeId scope_id,
-                                                 std::string_view name) const {
-  const auto& symbols = scope(scope_id).symbols;
+std::optional<SymbolId> ScopeTree::getLocalSymbolId(
+    ScopeId scope_id, std::string_view name) const {
+  const auto& symbols = getScope(scope_id).symbols;
   if (auto it = symbols.find(name); it != symbols.end()) {
     return it->second;
   }
   return std::nullopt;
 }
 
-const Symbol* ScopeTree::localSymbol(ScopeId scope_id,
-                                     std::string_view name) const {
-  const auto id = localSymbolId(scope_id, name);
-  return id.has_value() ? &symbol(*id) : nullptr;
+const Symbol* ScopeTree::getLocalSymbol(ScopeId scope_id,
+                                        std::string_view name) const {
+  const auto id = getLocalSymbolId(scope_id, name);
+  return id.has_value() ? &getSymbol(*id) : nullptr;
 }
 
-std::optional<SymbolId> ScopeTree::resolveId(ScopeId scope_id,
-                                             std::string_view name) const {
+std::optional<SymbolId> ScopeTree::getResolvedSymbolId(
+    ScopeId scope_id, std::string_view name) const {
   auto current = scope_id;
   while (current != kInvalidScopeId) {
-    if (const auto id = localSymbolId(current, name); id.has_value()) {
+    if (const auto id = getLocalSymbolId(current, name); id.has_value()) {
       return id;
     }
-    current = scope(current).parent;
+    current = getScope(current).parent;
   }
   return std::nullopt;
 }
 
-std::optional<SymbolId> ScopeTree::resolvedSymbolId(ast::NodeId node_id) const {
+const Symbol* ScopeTree::getResolvedSymbol(ast::NodeId node_id) const {
   if (auto it = resolved_symbols_.find(node_id);
       it != resolved_symbols_.end()) {
-    return it->second;
+    return &getSymbol(it->second);
   }
-  return std::nullopt;
+  return nullptr;
 }
 
-const Symbol* ScopeTree::resolvedSymbol(ast::NodeId node_id) const {
-  const auto id = resolvedSymbolId(node_id);
-  return id.has_value() ? &symbol(*id) : nullptr;
-}
-
-const std::vector<SymbolId>* ScopeTree::declaredSymbolIds(
+const std::vector<SymbolId>* ScopeTree::getDeclaredSymbolIds(
     ast::NodeId node_id) const {
   if (auto it = declared_symbols_.find(node_id);
       it != declared_symbols_.end()) {
@@ -140,15 +141,15 @@ const std::vector<SymbolId>* ScopeTree::declaredSymbolIds(
   return nullptr;
 }
 
-const Symbol* ScopeTree::declaredSymbol(ast::NodeId node_id,
-                                        SymbolKind kind) const {
-  const auto* ids = declaredSymbolIds(node_id);
+const Symbol* ScopeTree::getDeclaredSymbol(ast::NodeId node_id,
+                                           SymbolKind kind) const {
+  const auto* ids = getDeclaredSymbolIds(node_id);
   if (ids == nullptr) {
     return nullptr;
   }
 
   for (const auto id : *ids) {
-    const auto& candidate = symbol(id);
+    const auto& candidate = getSymbol(id);
     if (candidate.kind == kind) {
       return &candidate;
     }
@@ -218,17 +219,17 @@ class Analyzer {
   AnalysisResult result_;
 
   void registerBuiltins() {
-    addSymbol(ScopeTree::rootScopeId(), Symbol{
-                                            .name = "Int",
-                                            .kind = SymbolKind::BuiltinType,
-                                        });
+    addSymbol(ScopeTree::getRootScopeId(), Symbol{
+                                               .name = "Int",
+                                               .kind = SymbolKind::BuiltinType,
+                                           });
   }
 
   void registerGlobalDefinitions() {
     for (const auto& definition : parsed_->ast.definitions) {
       std::visit(util::overloaded{
                      [&](const ast::FunctionDefinition& fd) {
-                       addSymbol(ScopeTree::rootScopeId(),
+                       addSymbol(ScopeTree::getRootScopeId(),
                                  Symbol{
                                      .name = fd.name,
                                      .kind = SymbolKind::Function,
@@ -236,14 +237,14 @@ class Analyzer {
                                  });
                      },
                      [&](const ast::DataTypeDefinition& dt) {
-                       addSymbol(ScopeTree::rootScopeId(),
+                       addSymbol(ScopeTree::getRootScopeId(),
                                  Symbol{
                                      .name = dt.name,
                                      .kind = SymbolKind::DataType,
                                      .declaration = dt.id,
                                  });
                        for (const auto& ctor : dt.constructors) {
-                         addSymbol(ScopeTree::rootScopeId(),
+                         addSymbol(ScopeTree::getRootScopeId(),
                                    Symbol{
                                        .name = ctor.name,
                                        .kind = SymbolKind::Constructor,
@@ -258,20 +259,21 @@ class Analyzer {
 
   void checkGlobalDefinitions() {
     for (const auto& definition : parsed_->ast.definitions) {
-      std::visit(
-          util::overloaded{
-              [&](const ast::FunctionDefinition& fd) {
-                result_.scopes.bindNodeToScope(fd.id, ScopeTree::rootScopeId());
-              },
-              [&](const ast::DataTypeDefinition& dt) {
-                result_.scopes.bindNodeToScope(dt.id, ScopeTree::rootScopeId());
-                for (const auto& ctor : dt.constructors) {
-                  result_.scopes.bindNodeToScope(ctor.id,
-                                                 ScopeTree::rootScopeId());
-                }
-              },
-          },
-          definition);
+      std::visit(util::overloaded{
+                     [&](const ast::FunctionDefinition& fd) {
+                       result_.scopes.bindNodeToScope(
+                           fd.id, ScopeTree::getRootScopeId());
+                     },
+                     [&](const ast::DataTypeDefinition& dt) {
+                       result_.scopes.bindNodeToScope(
+                           dt.id, ScopeTree::getRootScopeId());
+                       for (const auto& ctor : dt.constructors) {
+                         result_.scopes.bindNodeToScope(
+                             ctor.id, ScopeTree::getRootScopeId());
+                       }
+                     },
+                 },
+                 definition);
     }
   }
 
@@ -285,7 +287,7 @@ class Analyzer {
 
   void bindFunction(const ast::FunctionDefinition& fd) {
     const auto function_scope =
-        result_.scopes.createScope(ScopeTree::rootScopeId(), fd.id);
+        result_.scopes.createScope(ScopeTree::getRootScopeId(), fd.id);
     result_.scopes.bindNodeToScope(fd.id, function_scope);
 
     for (const auto& parameter : fd.parameters) {
@@ -327,13 +329,14 @@ class Analyzer {
   void bindVariable(const ast::Variable& variable, ScopeId scope_id) {
     result_.scopes.bindNodeToScope(variable.id, scope_id);
 
-    const auto symbol_id = result_.scopes.resolveId(scope_id, variable.name);
+    const auto symbol_id =
+        result_.scopes.getResolvedSymbolId(scope_id, variable.name);
     if (!symbol_id.has_value()) {
       addError(variable.id,
                std::format("Undefined symbol '{}'", variable.name));
       return;
     }
-    const auto& symbol = result_.scopes.symbol(*symbol_id);
+    const auto& symbol = result_.scopes.getSymbol(*symbol_id);
 
     if (startsWithUppercase(variable.name) &&
         symbol.kind != SymbolKind::Constructor) {
@@ -386,10 +389,10 @@ class Analyzer {
                               ScopeId scope_id) {
     result_.scopes.bindNodeToScope(pattern.id, scope_id);
 
-    const auto symbol_id =
-        result_.scopes.localSymbolId(ScopeTree::rootScopeId(), pattern.name);
+    const auto symbol_id = result_.scopes.getLocalSymbolId(
+        ScopeTree::getRootScopeId(), pattern.name);
     const auto* symbol =
-        symbol_id.has_value() ? &result_.scopes.symbol(*symbol_id) : nullptr;
+        symbol_id.has_value() ? &result_.scopes.getSymbol(*symbol_id) : nullptr;
     if (symbol == nullptr || symbol->kind != SymbolKind::Constructor) {
       addError(pattern.id,
                std::format("Undefined constructor '{}'", pattern.name));
@@ -415,7 +418,7 @@ class Analyzer {
       return id;
     }
 
-    const auto* previous = result_.scopes.localSymbol(scope_id, name);
+    const auto* previous = result_.scopes.getLocalSymbol(scope_id, name);
     addError(declaration,
              std::format("Redefinition of '{}'; previous {} declared at {}",
                          name, toString(previous->kind),
@@ -424,8 +427,7 @@ class Analyzer {
   }
 
   void addError(ast::NodeId node_id, std::string message) {
-    result_.diagnostics.push_back(
-        makeDiagnostic(*parsed_, node_id, std::move(message)));
+    result_.diagnostics.push_back(makeDiagnostic(node_id, std::move(message)));
   }
 };
 

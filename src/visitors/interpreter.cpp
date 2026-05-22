@@ -56,7 +56,7 @@ int asInt(const Value& value) {
   if (symbol.kind != semantics::SymbolKind::Constructor) {
     throw std::runtime_error("Expected constructor symbol");
   }
-  const auto* signature = types.constructorSignature(symbol.id);
+  const auto* signature = types.getConstructorSignature(symbol.id);
   if (signature == nullptr) {
     throw std::runtime_error("Constructor has no type signature");
   }
@@ -83,7 +83,7 @@ bool matchPattern(const ast::Pattern& pattern, const Value& value,
   return std::visit(
       util::overloaded{
           [&](const ast::VariablePattern& vp) -> bool {
-            const auto* symbol = context.scopes->declaredSymbol(
+            const auto* symbol = context.scopes->getDeclaredSymbol(
                 vp.id, semantics::SymbolKind::PatternVariable);
             if (symbol == nullptr) {
               throw std::runtime_error(
@@ -93,7 +93,7 @@ bool matchPattern(const ast::Pattern& pattern, const Value& value,
             return true;
           },
           [&](const ast::ConstructorPattern& cp) -> bool {
-            const auto* constructor = context.scopes->resolvedSymbol(cp.id);
+            const auto* constructor = context.scopes->getResolvedSymbol(cp.id);
             if (constructor == nullptr ||
                 constructor->kind != semantics::SymbolKind::Constructor) {
               throw std::runtime_error(
@@ -110,7 +110,7 @@ bool matchPattern(const ast::Pattern& pattern, const Value& value,
             if (fields.empty()) {
               return true;
             }
-            const auto* bindings = context.scopes->declaredSymbolIds(cp.id);
+            const auto* bindings = context.scopes->getDeclaredSymbolIds(cp.id);
             if (bindings == nullptr || bindings->size() != fields.size()) {
               throw std::runtime_error(
                   "Constructor pattern has invalid bindings");
@@ -151,7 +151,7 @@ EvalResult evaluate(const ast::Expression& expression, const Environment& env,
             return Value{lit.value};
           },
           [&](const ast::Variable& var) -> EvalResult {
-            const auto* symbol = context.scopes->resolvedSymbol(var.id);
+            const auto* symbol = context.scopes->getResolvedSymbol(var.id);
             if (symbol == nullptr) {
               throw std::runtime_error("Undefined variable: " + var.name);
             }
@@ -216,16 +216,18 @@ Value interpret(const parsing::ParsedProgram& parsed) {
 Value interpret(const parsing::ParsedProgram& parsed,
                 const semantics::AnalysisResult& analysis) {
   if (!analysis.ok()) {
-    throw std::runtime_error(analysis.diagnostics.front().message);
+    throw std::runtime_error(
+        semantics::formatDiagnostic(parsed, analysis.diagnostics.front()));
   }
 
   const auto type_analysis = semantics::analyzeTypes(parsed, analysis);
   if (!type_analysis.ok()) {
-    throw std::runtime_error(type_analysis.diagnostics.front().message);
+    throw std::runtime_error(
+        semantics::formatDiagnostic(parsed, type_analysis.diagnostics.front()));
   }
 
-  const auto* main_symbol =
-      analysis.scopes.localSymbol(semantics::ScopeTree::rootScopeId(), "main");
+  const auto* main_symbol = analysis.scopes.getLocalSymbol(
+      semantics::ScopeTree::getRootScopeId(), "main");
   if (main_symbol == nullptr ||
       main_symbol->kind != semantics::SymbolKind::Function) {
     throw std::runtime_error("No 'main' function defined");

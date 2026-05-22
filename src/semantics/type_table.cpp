@@ -78,7 +78,7 @@ bool containsFunctionType(const Type& type) {
 
 }  // namespace
 
-const ConstructorSignature* TypeTable::constructorSignature(
+const ConstructorSignature* TypeTable::getConstructorSignature(
     SymbolId symbol_id) const {
   if (auto it = constructor_signatures_.find(symbol_id);
       it != constructor_signatures_.end()) {
@@ -87,7 +87,7 @@ const ConstructorSignature* TypeTable::constructorSignature(
   return nullptr;
 }
 
-const FunctionSignature* TypeTable::functionSignature(
+const FunctionSignature* TypeTable::getFunctionSignature(
     SymbolId symbol_id) const {
   if (auto it = function_signatures_.find(symbol_id);
       it != function_signatures_.end()) {
@@ -259,7 +259,7 @@ class TypeAnalyzer {
         util::overloaded{
             [](const InternalIntType&) -> std::string { return "Int"; },
             [&](const InternalDataType& data_type) -> std::string {
-              return scopes().symbol(data_type.symbol).name;
+              return scopes().getSymbol(data_type.symbol).name;
             },
             [&](const InternalFunctionType& function) -> std::string {
               auto parameter = describe(function.parameter);
@@ -304,7 +304,7 @@ class TypeAnalyzer {
 
   void registerBuiltins() {
     const auto* int_symbol =
-        scopes().localSymbol(ScopeTree::rootScopeId(), "Int");
+        scopes().getLocalSymbol(ScopeTree::getRootScopeId(), "Int");
     if (int_symbol != nullptr) {
       symbol_types_[int_symbol->id] = makeInt();
     }
@@ -319,7 +319,7 @@ class TypeAnalyzer {
       }
 
       const auto* data_symbol =
-          scopes().declaredSymbol(data_definition->id, SymbolKind::DataType);
+          scopes().getDeclaredSymbol(data_definition->id, SymbolKind::DataType);
       if (data_symbol == nullptr) {
         continue;
       }
@@ -334,7 +334,7 @@ class TypeAnalyzer {
   void registerConstructor(const ast::Constructor& constructor,
                            const Symbol& data_symbol) {
     const auto* constructor_symbol =
-        scopes().declaredSymbol(constructor.id, SymbolKind::Constructor);
+        scopes().getDeclaredSymbol(constructor.id, SymbolKind::Constructor);
     if (constructor_symbol == nullptr) {
       return;
     }
@@ -343,7 +343,7 @@ class TypeAnalyzer {
     fields.reserve(constructor.fields.size());
     for (const auto& field : constructor.fields) {
       const auto* type_symbol =
-          scopes().localSymbol(ScopeTree::rootScopeId(), field);
+          scopes().getLocalSymbol(ScopeTree::getRootScopeId(), field);
       if (type_symbol == nullptr || !isTypeSymbol(type_symbol->kind)) {
         addError(constructor.id, std::format("Unknown type '{}'", field));
         return;
@@ -380,8 +380,8 @@ class TypeAnalyzer {
 
   void prepareFunctionSignature(const ast::FunctionDefinition& function) {
     const auto* function_symbol =
-        scopes().declaredSymbol(function.id, SymbolKind::Function);
-    const auto function_scope = scopes().scopeOf(function.id);
+        scopes().getDeclaredSymbol(function.id, SymbolKind::Function);
+    const auto function_scope = scopes().getScopeId(function.id);
     if (function_symbol == nullptr || !function_scope.has_value()) {
       return;
     }
@@ -390,7 +390,7 @@ class TypeAnalyzer {
     parameters.reserve(function.parameters.size());
     for (const auto& parameter : function.parameters) {
       const auto* parameter_symbol =
-          scopes().localSymbol(*function_scope, parameter);
+          scopes().getLocalSymbol(*function_scope, parameter);
       if (parameter_symbol == nullptr) {
         continue;
       }
@@ -418,7 +418,7 @@ class TypeAnalyzer {
       }
 
       const auto* function_symbol =
-          scopes().declaredSymbol(function->id, SymbolKind::Function);
+          scopes().getDeclaredSymbol(function->id, SymbolKind::Function);
       if (function_symbol == nullptr) {
         continue;
       }
@@ -463,7 +463,7 @@ class TypeAnalyzer {
   }
 
   [[nodiscard]] TypeId inferVariable(const ast::Variable& variable) {
-    const auto* symbol = scopes().resolvedSymbol(variable.id);
+    const auto* symbol = scopes().getResolvedSymbol(variable.id);
     if (symbol == nullptr) {
       return makeVariable();
     }
@@ -528,7 +528,7 @@ class TypeAnalyzer {
   void inferVariablePattern(const ast::VariablePattern& pattern,
                             TypeId expected) {
     const auto* symbol =
-        scopes().declaredSymbol(pattern.id, SymbolKind::PatternVariable);
+        scopes().getDeclaredSymbol(pattern.id, SymbolKind::PatternVariable);
     if (symbol != nullptr) {
       symbol_types_[symbol->id] = expected;
     }
@@ -536,7 +536,7 @@ class TypeAnalyzer {
 
   void inferConstructorPattern(const ast::ConstructorPattern& pattern,
                                TypeId expected) {
-    const auto* constructor = scopes().resolvedSymbol(pattern.id);
+    const auto* constructor = scopes().getResolvedSymbol(pattern.id);
     if (constructor == nullptr) {
       return;
     }
@@ -557,7 +557,7 @@ class TypeAnalyzer {
       return;
     }
 
-    const auto* bindings = scopes().declaredSymbolIds(pattern.id);
+    const auto* bindings = scopes().getDeclaredSymbolIds(pattern.id);
     if (bindings == nullptr ||
         bindings->size() != signature->second.fields.size()) {
       return;
@@ -586,7 +586,7 @@ class TypeAnalyzer {
         continue;
       }
 
-      const auto& symbol = scopes().symbol(symbol_id);
+      const auto& symbol = scopes().getSymbol(symbol_id);
       addError(
           symbol.declaration,
           std::format("Could not infer concrete type of '{}'", symbol.name));
@@ -641,7 +641,7 @@ class TypeAnalyzer {
   void checkFunctionRestrictions() {
     for (const auto& [symbol_id, signature] :
          result_.types.function_signatures_) {
-      const auto& symbol = scopes().symbol(symbol_id);
+      const auto& symbol = scopes().getSymbol(symbol_id);
 
       if (symbol.name == "main" && !signature.parameters.empty()) {
         addError(symbol.declaration,
@@ -667,8 +667,7 @@ class TypeAnalyzer {
   }
 
   void addError(ast::NodeId node_id, std::string message) {
-    result_.diagnostics.push_back(
-        makeDiagnostic(*parsed_, node_id, std::move(message)));
+    result_.diagnostics.push_back(makeDiagnostic(node_id, std::move(message)));
   }
 };
 

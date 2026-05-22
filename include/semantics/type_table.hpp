@@ -60,9 +60,9 @@ struct FunctionSignature {
 
 class TypeTable {
  public:
-  [[nodiscard]] const ConstructorSignature* constructorSignature(
+  [[nodiscard]] const ConstructorSignature* getConstructorSignature(
       SymbolId symbol_id) const;
-  [[nodiscard]] const FunctionSignature* functionSignature(
+  [[nodiscard]] const FunctionSignature* getFunctionSignature(
       SymbolId symbol_id) const;
 
  private:
