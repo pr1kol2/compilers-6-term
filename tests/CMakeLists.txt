@@ -28,19 +28,15 @@ foreach(test_source IN LISTS TEST_SOURCES)
   endif()
 
   list(APPEND UNIT_TEST_MODULE_TARGETS "${module_target}")
-
-  add_executable("${test_target}" EXCLUDE_FROM_ALL "${test_source}")
-  target_link_libraries("${test_target}" PRIVATE GTest::gtest_main "${module_target}")
-
-  gtest_discover_tests(
-    "${test_target}"
-    TEST_PREFIX "${module_target}."
-    DISCOVERY_TIMEOUT 30
-    PROPERTIES LABELS "${module_target};unit"
-  )
 endforeach()
 
 list(REMOVE_DUPLICATES UNIT_TEST_MODULE_TARGETS)
 
-add_executable(unit_tests EXCLUDE_FROM_ALL ${TEST_SOURCES})
+add_executable(unit_tests ${TEST_SOURCES})
 target_link_libraries(unit_tests PRIVATE GTest::gtest_main ${UNIT_TEST_MODULE_TARGETS})
+
+gtest_discover_tests(
+  unit_tests
+  DISCOVERY_TIMEOUT 30
+  PROPERTIES LABELS unit
+)

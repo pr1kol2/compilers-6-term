@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <gtest/gtest.h>
 
 #include "parsing/ast.hpp"
@@ -25,27 +26,23 @@ TEST(Semantics, RegistersGlobalSymbolsAndBuiltins) {
   auto result = semantics::analyze(parsed);
   ASSERT_TRUE(result.ok());
 
-  const auto root = result.scopes.rootScopeId();
-  const auto* int_type = result.scopes.localSymbol(root, "Int");
-  const auto* list_type = result.scopes.localSymbol(root, "List");
-  const auto* nil = result.scopes.localSymbol(root, "Nil");
-  const auto* cons = result.scopes.localSymbol(root, "Cons");
-  const auto* main = result.scopes.localSymbol(root, "main");
+  const auto root = semantics::ScopeTree::getRootScopeId();
+  const auto* int_type = result.scopes.getLocalSymbol(root, "Int");
+  const auto* list_type = result.scopes.getLocalSymbol(root, "List");
+  const auto* nil = result.scopes.getLocalSymbol(root, "Nil");
+  const auto* cons = result.scopes.getLocalSymbol(root, "Cons");
+  const auto* main = result.scopes.getLocalSymbol(root, "main");
 
   ASSERT_NE(int_type, nullptr);
   EXPECT_EQ(int_type->kind, semantics::SymbolKind::BuiltinType);
   ASSERT_NE(list_type, nullptr);
   EXPECT_EQ(list_type->kind, semantics::SymbolKind::DataType);
-  EXPECT_EQ(list_type->arity, 2);
   ASSERT_NE(nil, nullptr);
   EXPECT_EQ(nil->kind, semantics::SymbolKind::Constructor);
-  EXPECT_EQ(nil->arity, 0);
   ASSERT_NE(cons, nullptr);
   EXPECT_EQ(cons->kind, semantics::SymbolKind::Constructor);
-  EXPECT_EQ(cons->arity, 2);
   ASSERT_NE(main, nullptr);
   EXPECT_EQ(main->kind, semantics::SymbolKind::Function);
-  EXPECT_EQ(main->arity, 0);
 }
 
 TEST(Semantics, BindsFunctionParametersInFunctionScope) {
@@ -54,22 +51,60 @@ TEST(Semantics, BindsFunctionParametersInFunctionScope) {
   ASSERT_TRUE(result.ok());
 
   const auto& function = functionAt(parsed.ast, 0);
-  const auto function_scope = result.scopes.scopeOf(function.id);
+  const auto function_scope = result.scopes.getScopeId(function.id);
   ASSERT_TRUE(function_scope.has_value());
 
-  const auto* parameter = result.scopes.localSymbol(*function_scope, "x");
+  const auto* parameter = result.scopes.getLocalSymbol(*function_scope, "x");
   ASSERT_NE(parameter, nullptr);
   EXPECT_EQ(parameter->kind, semantics::SymbolKind::Parameter);
   EXPECT_EQ(parameter->declaration, function.id);
 
   const auto& variable = asVariable(functionBody(parsed.ast));
-  const auto* resolved = result.scopes.resolvedSymbol(variable.id);
+  const auto* resolved = result.scopes.getResolvedSymbol(variable.id);
   ASSERT_NE(resolved, nullptr);
   EXPECT_EQ(resolved->kind, semantics::SymbolKind::Parameter);
   EXPECT_EQ(resolved->declaration, function.id);
-  const auto resolved_id = result.scopes.resolvedSymbolId(variable.id);
-  ASSERT_TRUE(resolved_id.has_value());
-  EXPECT_EQ(*resolved_id, parameter->id);
+  EXPECT_EQ(resolved->id, parameter->id);
+}
+
+TEST(Semantics, BuildsCaseBranchScopesUnderFunctionScope) {
+  auto parsed = parseSource(
+      "data Bool = { True, False } "
+      "defn main = { case True of { True -> { 1 } False -> { 0 } } }");
+  auto result = semantics::analyze(parsed);
+  ASSERT_TRUE(result.ok());
+
+  const auto& function = functionAt(parsed.ast, 1);
+  const auto function_scope = result.scopes.getScopeId(function.id);
+  ASSERT_TRUE(function_scope.has_value());
+
+  const auto& case_expression = asCase(functionBody(parsed.ast, 1));
+  const auto case_scope = result.scopes.getScopeId(case_expression.id);
+  ASSERT_TRUE(case_scope.has_value());
+  EXPECT_EQ(*case_scope, *function_scope);
+
+  const auto first_branch_scope =
+      result.scopes.getScopeId(case_expression.branches.front().id);
+  const auto second_branch_scope =
+      result.scopes.getScopeId(case_expression.branches.back().id);
+  ASSERT_TRUE(first_branch_scope.has_value());
+  ASSERT_TRUE(second_branch_scope.has_value());
+
+  const auto& function_scope_node = result.scopes.getScope(*function_scope);
+  EXPECT_EQ(result.scopes.getScope(*first_branch_scope).parent,
+            *function_scope);
+  EXPECT_EQ(result.scopes.getScope(*first_branch_scope).owner,
+            case_expression.branches.front().id);
+  EXPECT_EQ(result.scopes.getScope(*second_branch_scope).parent,
+            *function_scope);
+  EXPECT_EQ(result.scopes.getScope(*second_branch_scope).owner,
+            case_expression.branches.back().id);
+  EXPECT_NE(
+      std::ranges::find(function_scope_node.children, *first_branch_scope),
+      function_scope_node.children.end());
+  EXPECT_NE(
+      std::ranges::find(function_scope_node.children, *second_branch_scope),
+      function_scope_node.children.end());
 }
 
 TEST(Semantics, AllowsForwardFunctionReferences) {
@@ -81,7 +116,7 @@ TEST(Semantics, AllowsForwardFunctionReferences) {
   const auto& callee = asVariable(*application.function);
   const auto& id_function = functionAt(parsed.ast, 1);
 
-  const auto* resolved = result.scopes.resolvedSymbol(callee.id);
+  const auto* resolved = result.scopes.getResolvedSymbol(callee.id);
   ASSERT_NE(resolved, nullptr);
   EXPECT_EQ(resolved->kind, semantics::SymbolKind::Function);
   EXPECT_EQ(resolved->declaration, id_function.id);
@@ -93,10 +128,28 @@ TEST(Semantics, ReportsUndefinedVariable) {
   EXPECT_TRUE(hasDiagnosticContaining(result, "Undefined symbol 'missing'"));
 }
 
+TEST(Semantics, DiagnosticStoresSourceNodeId) {
+  auto parsed = parseSource("defn main = { missing }");
+  auto result = semantics::analyze(parsed);
+  ASSERT_FALSE(result.ok());
+  ASSERT_FALSE(result.diagnostics.empty());
+
+  const auto& variable = asVariable(functionBody(parsed.ast));
+  EXPECT_EQ(result.diagnostics.front().node_id, variable.id);
+  EXPECT_TRUE(semantics::formatDiagnostic(parsed, result.diagnostics.front())
+                  .contains("Undefined symbol 'missing' at "));
+}
+
 TEST(Semantics, ReportsGlobalRedefinition) {
   auto result = analyzeSource("defn f = { 1 } defn f = { 2 }");
   EXPECT_FALSE(result.ok());
   EXPECT_TRUE(hasDiagnosticContaining(result, "Redefinition of 'f'"));
+}
+
+TEST(Semantics, ReportsDuplicateGlobalConstructor) {
+  auto result = analyzeSource("data A = { C } data B = { C }");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(hasDiagnosticContaining(result, "Redefinition of 'C'"));
 }
 
 TEST(Semantics, ReportsDuplicateFunctionParameter) {
@@ -117,10 +170,29 @@ TEST(Semantics, PatternVariableShadowsFunctionParameter) {
   const auto& pattern = asConstructorPattern(branch.pattern);
   const auto& branch_body = asVariable(*branch.body);
 
-  const auto* resolved = result.scopes.resolvedSymbol(branch_body.id);
+  const auto* resolved = result.scopes.getResolvedSymbol(branch_body.id);
   ASSERT_NE(resolved, nullptr);
   EXPECT_EQ(resolved->kind, semantics::SymbolKind::PatternVariable);
   EXPECT_EQ(resolved->declaration, pattern.id);
+}
+
+TEST(Semantics, AllowsSamePatternBindingNameInDifferentBranches) {
+  auto parsed = parseSource(
+      "data Wrap = { A Int, B Int } "
+      "defn main = { case A 1 of { A x -> { x } B x -> { x } } }");
+  auto result = semantics::analyze(parsed);
+  ASSERT_TRUE(result.ok());
+
+  const auto& case_expression = asCase(functionBody(parsed.ast, 1));
+  const auto& first_body = asVariable(*case_expression.branches.front().body);
+  const auto& second_body = asVariable(*case_expression.branches.back().body);
+  const auto* first_resolved = result.scopes.getResolvedSymbol(first_body.id);
+  const auto* second_resolved = result.scopes.getResolvedSymbol(second_body.id);
+  ASSERT_NE(first_resolved, nullptr);
+  ASSERT_NE(second_resolved, nullptr);
+  EXPECT_EQ(first_resolved->kind, semantics::SymbolKind::PatternVariable);
+  EXPECT_EQ(second_resolved->kind, semantics::SymbolKind::PatternVariable);
+  EXPECT_NE(first_resolved->id, second_resolved->id);
 }
 
 TEST(Semantics, CaseBranchPatternBindingsAreIsolated) {
@@ -131,8 +203,51 @@ TEST(Semantics, CaseBranchPatternBindingsAreIsolated) {
   EXPECT_TRUE(hasDiagnosticContaining(result, "Undefined symbol 'x'"));
 }
 
-TEST(Semantics, ReportsConstructorPatternArityMismatch) {
+TEST(Semantics, ResolvesConstructorPatternToConstructorSymbol) {
+  auto parsed = parseSource(
+      "data Wrap = { W Int } "
+      "defn main = { case W 1 of { W x -> { x } } }");
+  auto result = semantics::analyze(parsed);
+  ASSERT_TRUE(result.ok());
+
+  const auto root = semantics::ScopeTree::getRootScopeId();
+  const auto* constructor = result.scopes.getLocalSymbol(root, "W");
+  ASSERT_NE(constructor, nullptr);
+
+  const auto& case_expression = asCase(functionBody(parsed.ast, 1));
+  const auto& pattern =
+      asConstructorPattern(case_expression.branches.front().pattern);
+  const auto* resolved = result.scopes.getResolvedSymbol(pattern.id);
+  ASSERT_NE(resolved, nullptr);
+  EXPECT_EQ(resolved->id, constructor->id);
+
+  const auto* bindings = result.scopes.getDeclaredSymbolIds(pattern.id);
+  ASSERT_NE(bindings, nullptr);
+  ASSERT_EQ(bindings->size(), 1);
+  const auto& binding = result.scopes.getSymbol(bindings->front());
+  EXPECT_EQ(binding.name, "x");
+  EXPECT_EQ(binding.kind, semantics::SymbolKind::PatternVariable);
+  EXPECT_EQ(binding.declaration, pattern.id);
+}
+
+TEST(Semantics, ReportsUndefinedConstructorPattern) {
   auto result = analyzeSource(
+      "data Wrap = { W Int } "
+      "defn main = { case W 1 of { Missing x -> { x } } }");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(
+      hasDiagnosticContaining(result, "Undefined constructor 'Missing'"));
+}
+
+TEST(Semantics, ReportsDataTypeUsedAsConstructor) {
+  auto result = analyzeSource("data Wrap = { W } defn main = { Wrap }");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(
+      hasDiagnosticContaining(result, "'Wrap' is data type, not constructor"));
+}
+
+TEST(Semantics, ReportsConstructorPatternArityMismatch) {
+  auto result = analyzeTypesSource(
       "data Wrap = { W Int } "
       "defn main = { case W 1 of { W x y -> { x } } }");
   EXPECT_FALSE(result.ok());
@@ -141,7 +256,8 @@ TEST(Semantics, ReportsConstructorPatternArityMismatch) {
 }
 
 TEST(Semantics, ReportsUnknownConstructorFieldType) {
-  auto result = analyzeSource("data Bad = { B Missing } defn main = { 0 }");
+  auto result =
+      analyzeTypesSource("data Bad = { B Missing } defn main = { 0 }");
   EXPECT_FALSE(result.ok());
   EXPECT_TRUE(hasDiagnosticContaining(result, "Unknown type 'Missing'"));
 }
@@ -163,31 +279,37 @@ TEST(Semantics, InfersFunctionAndConstructorTypes) {
   auto result = semantics::analyzeTypes(parsed, analysis);
   ASSERT_TRUE(result.ok());
 
-  const auto root = semantics::ScopeTree::rootScopeId();
-  const auto* list = analysis.scopes.localSymbol(root, "List");
-  const auto* cons = analysis.scopes.localSymbol(root, "Cons");
-  const auto* head = analysis.scopes.localSymbol(root, "head");
-  const auto* main = analysis.scopes.localSymbol(root, "main");
+  const auto root = semantics::ScopeTree::getRootScopeId();
+  const auto* list = analysis.scopes.getLocalSymbol(root, "List");
+  const auto* nil = analysis.scopes.getLocalSymbol(root, "Nil");
+  const auto* cons = analysis.scopes.getLocalSymbol(root, "Cons");
+  const auto* head = analysis.scopes.getLocalSymbol(root, "head");
+  const auto* main = analysis.scopes.getLocalSymbol(root, "main");
   ASSERT_NE(list, nullptr);
+  ASSERT_NE(nil, nullptr);
   ASSERT_NE(cons, nullptr);
   ASSERT_NE(head, nullptr);
   ASSERT_NE(main, nullptr);
 
-  const auto* cons_signature = result.types.constructorSignature(cons->id);
+  const auto* nil_signature = result.types.getConstructorSignature(nil->id);
+  ASSERT_NE(nil_signature, nullptr);
+  EXPECT_EQ(nil_signature->data_type, list->id);
+  EXPECT_TRUE(nil_signature->fields.empty());
+
+  const auto* cons_signature = result.types.getConstructorSignature(cons->id);
   ASSERT_NE(cons_signature, nullptr);
   EXPECT_EQ(cons_signature->data_type, list->id);
   ASSERT_EQ(cons_signature->fields.size(), 2);
   EXPECT_EQ(cons_signature->fields.front(), semantics::intType());
   EXPECT_EQ(cons_signature->fields.back(), semantics::dataType(list->id));
-  EXPECT_EQ(cons_signature->result, semantics::dataType(list->id));
 
-  const auto* head_signature = result.types.functionSignature(head->id);
+  const auto* head_signature = result.types.getFunctionSignature(head->id);
   ASSERT_NE(head_signature, nullptr);
   ASSERT_EQ(head_signature->parameters.size(), 1);
   EXPECT_EQ(head_signature->parameters.front(), semantics::dataType(list->id));
   EXPECT_EQ(head_signature->result, semantics::intType());
 
-  const auto* main_signature = result.types.functionSignature(main->id);
+  const auto* main_signature = result.types.getFunctionSignature(main->id);
   ASSERT_NE(main_signature, nullptr);
   EXPECT_TRUE(main_signature->parameters.empty());
   EXPECT_EQ(main_signature->result, semantics::intType());
@@ -241,6 +363,13 @@ TEST(Semantics, ReportsUnresolvedMonomorphicType) {
   auto result = analyzeTypesSource("defn id x = { x }");
   EXPECT_FALSE(result.ok());
   EXPECT_TRUE(hasDiagnosticContaining(result, "Could not infer concrete type"));
+}
+
+TEST(Semantics, ReportsMainWithParameters) {
+  auto result = analyzeTypesSource("defn main x = { x + 1 }");
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(hasDiagnosticContaining(
+      result, "Function 'main' must not have parameters"));
 }
 
 // NOLINTEND
