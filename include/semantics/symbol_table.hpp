@@ -36,9 +36,7 @@ enum class SymbolKind : std::uint8_t {
   PatternVariable,
 };
 
-[[nodiscard]] std::string_view toString(SymbolKind kind);
 [[nodiscard]] bool isTypeSymbol(SymbolKind kind);
-[[nodiscard]] bool isValueSymbol(SymbolKind kind);
 
 struct Symbol {
   SymbolId id = kInvalidSymbolId;
@@ -69,10 +67,6 @@ class ScopeTree {
   [[nodiscard]] const Symbol* getLocalSymbol(ScopeId scope_id,
                                              std::string_view name) const;
   [[nodiscard]] const Symbol* getResolvedSymbol(ast::NodeId node_id) const;
-  [[nodiscard]] const std::vector<SymbolId>* getDeclaredSymbolIds(
-      ast::NodeId node_id) const;
-  [[nodiscard]] const Symbol* getDeclaredSymbol(ast::NodeId node_id,
-                                                SymbolKind kind) const;
 
  private:
   [[nodiscard]] ScopeId createScope(ScopeId parent, ast::NodeId owner);
@@ -89,7 +83,6 @@ class ScopeTree {
   std::vector<Symbol> symbols_;
   std::unordered_map<ast::NodeId, ScopeId> scope_by_node_;
   std::unordered_map<ast::NodeId, SymbolId> resolved_symbols_;
-  std::unordered_map<ast::NodeId, std::vector<SymbolId>> declared_symbols_;
 
   friend class Analyzer;
 };
@@ -99,8 +92,6 @@ struct Diagnostic {
   std::string message;
 };
 
-[[nodiscard]] std::string positionOf(const parsing::ParsedProgram& parsed,
-                                     ast::NodeId node_id);
 [[nodiscard]] Diagnostic makeDiagnostic(ast::NodeId node_id,
                                         std::string message);
 [[nodiscard]] std::string formatDiagnostic(const parsing::ParsedProgram& parsed,

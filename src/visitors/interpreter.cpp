@@ -83,11 +83,18 @@ bool matchPattern(const ast::Pattern& pattern, const Value& value,
   return std::visit(
       util::overloaded{
           [&](const ast::VariablePattern& vp) -> bool {
-            const auto* symbol = context.scopes->getDeclaredSymbol(
-                vp.id, semantics::SymbolKind::PatternVariable);
+            const auto scope_id = context.scopes->getScopeId(vp.id);
+            const auto* symbol =
+                scope_id.has_value()
+                    ? context.scopes->getLocalSymbol(*scope_id, vp.name)
+                    : nullptr;
             if (symbol == nullptr) {
               throw std::runtime_error(
                   "Pattern variable has no semantic binding");
+            }
+            if (symbol->kind != semantics::SymbolKind::PatternVariable) {
+              throw std::runtime_error(
+                  "Pattern name is not a variable binding");
             }
             env[symbol->id] = value;
             return true;
@@ -110,14 +117,21 @@ bool matchPattern(const ast::Pattern& pattern, const Value& value,
             if (fields.empty()) {
               return true;
             }
-            const auto* bindings = context.scopes->getDeclaredSymbolIds(cp.id);
-            if (bindings == nullptr || bindings->size() != fields.size()) {
+            const auto scope_id = context.scopes->getScopeId(cp.id);
+            if (!scope_id.has_value()) {
               throw std::runtime_error(
                   "Constructor pattern has invalid bindings");
             }
-            for (const auto& [binding, field] :
-                 std::views::zip(*bindings, fields)) {
-              env[binding] = field;
+            for (const auto& [argument, field] :
+                 std::views::zip(cp.arguments, fields)) {
+              const auto* binding =
+                  context.scopes->getLocalSymbol(*scope_id, argument);
+              if (binding == nullptr ||
+                  binding->kind != semantics::SymbolKind::PatternVariable) {
+                throw std::runtime_error(
+                    "Constructor pattern has invalid bindings");
+              }
+              env[binding->id] = field;
             }
             return true;
           },

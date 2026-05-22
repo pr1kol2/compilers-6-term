@@ -221,13 +221,12 @@ TEST(Semantics, ResolvesConstructorPatternToConstructorSymbol) {
   ASSERT_NE(resolved, nullptr);
   EXPECT_EQ(resolved->id, constructor->id);
 
-  const auto* bindings = result.scopes.getDeclaredSymbolIds(pattern.id);
-  ASSERT_NE(bindings, nullptr);
-  ASSERT_EQ(bindings->size(), 1);
-  const auto& binding = result.scopes.getSymbol(bindings->front());
-  EXPECT_EQ(binding.name, "x");
-  EXPECT_EQ(binding.kind, semantics::SymbolKind::PatternVariable);
-  EXPECT_EQ(binding.declaration, pattern.id);
+  const auto pattern_scope = result.scopes.getScopeId(pattern.id);
+  ASSERT_TRUE(pattern_scope.has_value());
+  const auto* binding = result.scopes.getLocalSymbol(*pattern_scope, "x");
+  ASSERT_NE(binding, nullptr);
+  EXPECT_EQ(binding->kind, semantics::SymbolKind::PatternVariable);
+  EXPECT_EQ(binding->declaration, pattern.id);
 }
 
 TEST(Semantics, ReportsUndefinedConstructorPattern) {

@@ -21,8 +21,6 @@ namespace {
                               static_cast<unsigned char>(*name.begin())));
 }
 
-}  // namespace
-
 std::string_view toString(SymbolKind kind) {
   switch (kind) {
     case SymbolKind::BuiltinType:
@@ -41,10 +39,6 @@ std::string_view toString(SymbolKind kind) {
   std::unreachable();
 }
 
-bool isTypeSymbol(SymbolKind kind) {
-  return kind == SymbolKind::BuiltinType || kind == SymbolKind::DataType;
-}
-
 bool isValueSymbol(SymbolKind kind) {
   return kind == SymbolKind::Constructor || kind == SymbolKind::Function ||
          kind == SymbolKind::Parameter || kind == SymbolKind::PatternVariable;
@@ -56,6 +50,12 @@ std::string positionOf(const parsing::ParsedProgram& parsed,
     return "<builtin>";
   }
   return parsed.positions.at(node_id).toString();
+}
+
+}  // namespace
+
+bool isTypeSymbol(SymbolKind kind) {
+  return kind == SymbolKind::BuiltinType || kind == SymbolKind::DataType;
 }
 
 Diagnostic makeDiagnostic(ast::NodeId node_id, std::string message) {
@@ -132,31 +132,6 @@ const Symbol* ScopeTree::getResolvedSymbol(ast::NodeId node_id) const {
   return nullptr;
 }
 
-const std::vector<SymbolId>* ScopeTree::getDeclaredSymbolIds(
-    ast::NodeId node_id) const {
-  if (auto it = declared_symbols_.find(node_id);
-      it != declared_symbols_.end()) {
-    return &it->second;
-  }
-  return nullptr;
-}
-
-const Symbol* ScopeTree::getDeclaredSymbol(ast::NodeId node_id,
-                                           SymbolKind kind) const {
-  const auto* ids = getDeclaredSymbolIds(node_id);
-  if (ids == nullptr) {
-    return nullptr;
-  }
-
-  for (const auto id : *ids) {
-    const auto& candidate = getSymbol(id);
-    if (candidate.kind == kind) {
-      return &candidate;
-    }
-  }
-  return nullptr;
-}
-
 ScopeId ScopeTree::createScope(ScopeId parent, ast::NodeId owner) {
   const auto id = scopes_.size();
   scopes_.push_back(Scope{
@@ -193,11 +168,6 @@ std::optional<SymbolId> ScopeTree::addLocalSymbol(ScopeId scope_id,
   symbol.id = id;
   symbols_.push_back(std::move(symbol));
   symbols.emplace(name, id);
-
-  const auto declaration = symbols_.back().declaration;
-  if (declaration != ast::kInvalidNodeId) {
-    declared_symbols_[declaration].push_back(id);
-  }
 
   return id;
 }

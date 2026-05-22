@@ -130,6 +130,31 @@ class TypeAnalyzer {
 
   [[nodiscard]] const ScopeTree& scopes() const { return analysis_->scopes; }
 
+  [[nodiscard]] const Symbol* getRootSymbol(std::string_view name,
+                                            SymbolKind kind) const {
+    const auto* symbol =
+        scopes().getLocalSymbol(ScopeTree::getRootScopeId(), name);
+    if (symbol == nullptr || symbol->kind != kind) {
+      return nullptr;
+    }
+    return symbol;
+  }
+
+  [[nodiscard]] const Symbol* getSymbolInNodeScope(ast::NodeId node_id,
+                                                   std::string_view name,
+                                                   SymbolKind kind) const {
+    const auto scope_id = scopes().getScopeId(node_id);
+    if (!scope_id.has_value()) {
+      return nullptr;
+    }
+
+    const auto* symbol = scopes().getLocalSymbol(*scope_id, name);
+    if (symbol == nullptr || symbol->kind != kind) {
+      return nullptr;
+    }
+    return symbol;
+  }
+
   [[nodiscard]] TypeId makeType(InternalType type) {
     const auto id = types_.size();
     types_.push_back(type);
@@ -319,7 +344,7 @@ class TypeAnalyzer {
       }
 
       const auto* data_symbol =
-          scopes().getDeclaredSymbol(data_definition->id, SymbolKind::DataType);
+          getRootSymbol(data_definition->name, SymbolKind::DataType);
       if (data_symbol == nullptr) {
         continue;
       }
@@ -334,7 +359,7 @@ class TypeAnalyzer {
   void registerConstructor(const ast::Constructor& constructor,
                            const Symbol& data_symbol) {
     const auto* constructor_symbol =
-        scopes().getDeclaredSymbol(constructor.id, SymbolKind::Constructor);
+        getRootSymbol(constructor.name, SymbolKind::Constructor);
     if (constructor_symbol == nullptr) {
       return;
     }
@@ -380,7 +405,7 @@ class TypeAnalyzer {
 
   void prepareFunctionSignature(const ast::FunctionDefinition& function) {
     const auto* function_symbol =
-        scopes().getDeclaredSymbol(function.id, SymbolKind::Function);
+        getRootSymbol(function.name, SymbolKind::Function);
     const auto function_scope = scopes().getScopeId(function.id);
     if (function_symbol == nullptr || !function_scope.has_value()) {
       return;
@@ -418,7 +443,7 @@ class TypeAnalyzer {
       }
 
       const auto* function_symbol =
-          scopes().getDeclaredSymbol(function->id, SymbolKind::Function);
+          getRootSymbol(function->name, SymbolKind::Function);
       if (function_symbol == nullptr) {
         continue;
       }
@@ -527,8 +552,8 @@ class TypeAnalyzer {
 
   void inferVariablePattern(const ast::VariablePattern& pattern,
                             TypeId expected) {
-    const auto* symbol =
-        scopes().getDeclaredSymbol(pattern.id, SymbolKind::PatternVariable);
+    const auto* symbol = getSymbolInNodeScope(pattern.id, pattern.name,
+                                              SymbolKind::PatternVariable);
     if (symbol != nullptr) {
       symbol_types_[symbol->id] = expected;
     }
@@ -557,15 +582,18 @@ class TypeAnalyzer {
       return;
     }
 
-    const auto* bindings = scopes().getDeclaredSymbolIds(pattern.id);
-    if (bindings == nullptr ||
-        bindings->size() != signature->second.fields.size()) {
+    const auto pattern_scope = scopes().getScopeId(pattern.id);
+    if (!pattern_scope.has_value()) {
       return;
     }
 
-    for (const auto [binding, field] :
-         std::views::zip(*bindings, signature->second.fields)) {
-      symbol_types_[binding] = field;
+    for (const auto& [argument, field] :
+         std::views::zip(pattern.arguments, signature->second.fields)) {
+      const auto* binding = scopes().getLocalSymbol(*pattern_scope, argument);
+      if (binding == nullptr || binding->kind != SymbolKind::PatternVariable) {
+        return;
+      }
+      symbol_types_[binding->id] = field;
     }
   }
 
