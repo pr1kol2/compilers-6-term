@@ -2,27 +2,24 @@
 #include <string>
 #include <string_view>
 
-#include "parsing/parse.hpp"
-#include "tokenization/tokenize.hpp"
+#include "test_utils.hpp"
 #include "visitors/print_visitor.hpp"
 
-// NOLINTNEXTLINE
+// NOLINTBEGIN
+
 using namespace ast;
+using test_utils::parseProgram;
 
 namespace {
 
-Program parseSource(std::string_view source) {
-  return parsing::parse(tokenization::tokenize(source)).ast;
-}
-
 std::string printBody(std::string_view source) {
-  auto program = parseSource(source);
+  auto program = parseProgram(source);
   const auto& fd = std::get<FunctionDefinition>(program.definitions.front());
   return visitors::print(*fd.body);
 }
 
 std::string printDef(std::string_view source) {
-  return visitors::print(parseSource(source).definitions.front());
+  return visitors::print(parseProgram(source).definitions.front());
 }
 
 }  // namespace
@@ -82,7 +79,9 @@ TEST(PrintVisitor, DataTypeDefinition) {
 }
 
 TEST(PrintVisitor, FullProgram) {
-  EXPECT_EQ(visitors::print(parseSource("defn f x = { x + 1 } "
-                                        "data Bool = { True, False }")),
+  EXPECT_EQ(visitors::print(parseProgram("defn f x = { x + 1 } "
+                                         "data Bool = { True, False }")),
             "defn f x = { (x + 1) }\ndata Bool = { True, False }");
 }
+
+// NOLINTEND

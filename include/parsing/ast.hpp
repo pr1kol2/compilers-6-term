@@ -35,6 +35,7 @@ constexpr bool equalBy(const T& left, const T& right, Members... members) {
     DECLARE_OPERATOR_EQUAL(Type, &Type::left_operand, &Type::right_operand) \
   };
 
+// C++23 std::visit supports wrappers derived from std::variant.
 #define DECLARE_VARIANT_WRAPPER(Type, VariantType)              \
   struct Type : VariantType {                                   \
     using Variant = VariantType;                                \

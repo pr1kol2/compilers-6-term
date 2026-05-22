@@ -12,7 +12,7 @@ struct Position {
 
   bool operator==(const Position&) const = default;
 
-  std::string toString() const;
+  [[nodiscard]] std::string toString() const;
 };
 
 }  // namespace util

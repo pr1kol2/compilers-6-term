@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-BUILD_DIR="build/debug"
+BUILD_DIR="build/Debug"
 
 cmake -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
 cmake --build "${BUILD_DIR}" --target unit_tests

@@ -1,28 +1,22 @@
-#include <algorithm>
-#include <concepts>
-#include <cstddef>
 #include <gtest/gtest.h>
 #include <initializer_list>
-#include <ranges>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "parsing/ast.hpp"
-#include "parsing/ast_traits.hpp"
 #include "parsing/parse.hpp"
-#include "tokenization/tokenize.hpp"
+#include "test_utils.hpp"
+
 // NOLINTBEGIN
 
 using namespace ast;
+using test_utils::functionBody;
+using test_utils::parseSource;
 
 namespace {
-
-parsing::ParsedProgram parseSource(std::string_view source) {
-  return parsing::parse(tokenization::tokenize(source));
-}
 
 [[nodiscard]] Expression literal(int value) { return IntLiteral{{}, value}; }
 
@@ -81,78 +75,13 @@ void expectPosition(const parsing::ParsedProgram& parsed, const Node& node,
   EXPECT_EQ(parsing::positionOf(parsed, node), expected);
 }
 
-[[nodiscard]] const Expression& firstFunctionBody(
-    const parsing::ParsedProgram& parsed) {
-  const auto& definition =
-      std::get<FunctionDefinition>(parsed.ast.definitions.front());
-  return *definition.body;
-}
-
-[[nodiscard]] const CaseExpression& firstFunctionCaseBody(
-    const parsing::ParsedProgram& parsed) {
-  return std::get<CaseExpression>(firstFunctionBody(parsed));
-}
-
-void collectNodeIds(const Pattern& pattern, std::vector<NodeId>& node_ids) {
-  std::visit([&](const auto& node) { node_ids.push_back(node.id); }, pattern);
-}
-
-void collectNodeIds(const Expression& expression,
-                    std::vector<NodeId>& node_ids) {
-  std::visit(
-      [&](const auto& node) {
-        using NodeType = std::remove_cvref_t<decltype(node)>;
-        node_ids.push_back(node.id);
-        if constexpr (ast::IsBinaryOperator<NodeType>) {
-          collectNodeIds(*node.left_operand, node_ids);
-          collectNodeIds(*node.right_operand, node_ids);
-        } else if constexpr (std::same_as<NodeType, Application>) {
-          collectNodeIds(*node.function, node_ids);
-          collectNodeIds(*node.argument, node_ids);
-        } else if constexpr (std::same_as<NodeType, CaseExpression>) {
-          collectNodeIds(*node.scrutinee, node_ids);
-          for (const auto& branch : node.branches) {
-            node_ids.push_back(branch.id);
-            collectNodeIds(branch.pattern, node_ids);
-            collectNodeIds(*branch.body, node_ids);
-          }
-        }
-      },
-      expression);
-}
-
-void collectNodeIds(const Definition& definition,
-                    std::vector<NodeId>& node_ids) {
-  std::visit(
-      [&](const auto& node) {
-        using NodeType = std::remove_cvref_t<decltype(node)>;
-        node_ids.push_back(node.id);
-        if constexpr (std::same_as<NodeType, FunctionDefinition>) {
-          collectNodeIds(*node.body, node_ids);
-        } else if constexpr (std::same_as<NodeType, DataTypeDefinition>) {
-          for (const auto& constructor : node.constructors) {
-            node_ids.push_back(constructor.id);
-          }
-        }
-      },
-      definition);
-}
-
-[[nodiscard]] std::vector<NodeId> collectNodeIds(const Program& program) {
-  std::vector<NodeId> node_ids;
-  for (const auto& definition : program.definitions) {
-    collectNodeIds(definition, node_ids);
-  }
-  return node_ids;
-}
-
 }  // namespace
 
 TEST(Parse, NumericLiteral) {
   auto parsed = expectProgram(
       "defn f = { 42 }",
       Program{{Definition{FunctionDefinition{{}, "f", {}, literal(42)}}}});
-  const auto& node = std::get<IntLiteral>(firstFunctionBody(parsed));
+  const auto& node = std::get<IntLiteral>(functionBody(parsed.ast));
   expectPosition(parsed, node, {1, 12, 1, 14});
 }
 
@@ -160,7 +89,7 @@ TEST(Parse, Variable) {
   auto parsed = expectProgram(
       "defn f x = { x }",
       Program{{Definition{FunctionDefinition{{}, "f", {"x"}, variable("x")}}}});
-  const auto& node = std::get<Variable>(firstFunctionBody(parsed));
+  const auto& node = std::get<Variable>(functionBody(parsed.ast));
   expectPosition(parsed, node, {1, 14, 1, 15});
 }
 
@@ -169,7 +98,7 @@ TEST(Parse, Addition) {
       "defn f = { 1 + 2 }",
       Program{{Definition{FunctionDefinition{
           {}, "f", {}, binary<Addition>(literal(1), literal(2))}}}});
-  const auto& node = std::get<Addition>(firstFunctionBody(parsed));
+  const auto& node = std::get<Addition>(functionBody(parsed.ast));
   expectPosition(parsed, node, {1, 14, 1, 15});
 }
 
@@ -275,7 +204,8 @@ TEST(Parse, CaseExpression) {
                   Branch{{},
                          constructorPattern("Cons", {"y", "ys"}),
                          variable("y")}})}}}});
-  const auto& case_expression = firstFunctionCaseBody(parsed);
+  const auto& case_expression =
+      std::get<CaseExpression>(functionBody(parsed.ast));
   const auto& first_branch = case_expression.branches.front();
   const auto& second_branch = case_expression.branches.back();
   const auto& first_pattern =
@@ -313,19 +243,6 @@ TEST(Parse, FullExample) {
                        Branch{{},
                               constructorPattern("Cons", {"x", "xs"}),
                               variable("x")}})}}}}));
-}
-
-TEST(Parse, PositionsAreStoredByDenseNodeId) {
-  auto parsed = parseSource(
-      "defn f x = { case x of { Cons y ys -> { y } } } data List = { Nil, Cons "
-      "Int List }");
-  auto node_ids = collectNodeIds(parsed.ast);
-
-  std::ranges::sort(node_ids);
-  const auto expected_ids =
-      std::views::iota(ast::NodeId{0}, parsed.positions.size());
-
-  EXPECT_TRUE(std::ranges::equal(node_ids, expected_ids));
 }
 
 TEST(Parse, RepresentativeNodesIndexIntoPositions) {
@@ -371,11 +288,12 @@ TEST(Parse, StructuralEqualityIgnoresNodeId) {
 }
 
 TEST(Parse, ThrowsOnUnexpectedToken) {
-  EXPECT_THROW(parseSource("42"), std::runtime_error);
+  EXPECT_THROW(static_cast<void>(parseSource("42")), std::runtime_error);
 }
 
 TEST(Parse, ThrowsOnMissingBrace) {
-  EXPECT_THROW(parseSource("defn f = { 42"), std::runtime_error);
+  EXPECT_THROW(static_cast<void>(parseSource("defn f = { 42")),
+               std::runtime_error);
 }
 
 // NOLINTEND

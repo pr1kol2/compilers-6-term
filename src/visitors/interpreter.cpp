@@ -1,7 +1,7 @@
 #include "visitors/interpreter.hpp"
 
-#include <concepts>
 #include <cstddef>
+#include <ranges>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -11,6 +11,9 @@
 
 #include "parsing/ast.hpp"
 #include "parsing/ast_traits.hpp"
+#include "parsing/parse.hpp"
+#include "semantics/symbol_table.hpp"
+#include "semantics/type_table.hpp"
 #include "util/box.hpp"
 #include "util/overloaded.hpp"
 
@@ -26,24 +29,11 @@ struct PartialConstructor {
 
 using EvalResult = std::variant<Value, PartialConstructor>;
 
-using Environment = std::unordered_map<std::string, Value>;
+using Environment = std::unordered_map<semantics::SymbolId, Value>;
 
-struct ConstructorRegistry {
-  std::unordered_map<std::string, std::size_t> arities;
-
-  void registerDataType(const ast::DataTypeDefinition& dt) {
-    for (const auto& ctor : dt.constructors) {
-      arities[ctor.name] = ctor.fields.size();
-    }
-  }
-
-  [[nodiscard]] bool isConstructor(const std::string& name) const {
-    return arities.contains(name);
-  }
-
-  [[nodiscard]] std::size_t arity(const std::string& name) const {
-    return arities.at(name);
-  }
+struct EvaluationContext {
+  const semantics::ScopeTree* scopes = nullptr;
+  const semantics::TypeTable* types = nullptr;
 };
 
 Value asValue(EvalResult result) {
@@ -61,28 +51,87 @@ int asInt(const Value& value) {
   return *n;
 }
 
+[[nodiscard]] std::size_t constructorArity(const semantics::Symbol& symbol,
+                                           const semantics::TypeTable& types) {
+  if (symbol.kind != semantics::SymbolKind::Constructor) {
+    throw std::runtime_error("Expected constructor symbol");
+  }
+  const auto* signature = types.getConstructorSignature(symbol.id);
+  if (signature == nullptr) {
+    throw std::runtime_error("Constructor has no type signature");
+  }
+  return signature->fields.size();
+}
+
+[[nodiscard]] const ast::FunctionDefinition* findFunctionById(
+    const ast::Program& program, ast::NodeId id) {
+  for (const auto& definition : program.definitions) {
+    if (const auto* function =
+            std::get_if<ast::FunctionDefinition>(&definition);
+        function != nullptr && function->id == id) {
+      return function;
+    }
+  }
+  return nullptr;
+}
+
 EvalResult evaluate(const ast::Expression& expression, const Environment& env,
-                    const ConstructorRegistry& registry);
+                    const EvaluationContext& context);
 
 bool matchPattern(const ast::Pattern& pattern, const Value& value,
-                  Environment& env) {
+                  Environment& env, const EvaluationContext& context) {
   return std::visit(
       util::overloaded{
           [&](const ast::VariablePattern& vp) -> bool {
-            env[vp.name] = value;
+            const auto scope_id = context.scopes->getScopeId(vp.id);
+            const auto* symbol =
+                scope_id.has_value()
+                    ? context.scopes->getLocalSymbol(*scope_id, vp.name)
+                    : nullptr;
+            if (symbol == nullptr) {
+              throw std::runtime_error(
+                  "Pattern variable has no semantic binding");
+            }
+            if (symbol->kind != semantics::SymbolKind::PatternVariable) {
+              throw std::runtime_error(
+                  "Pattern name is not a variable binding");
+            }
+            env[symbol->id] = value;
             return true;
           },
           [&](const ast::ConstructorPattern& cp) -> bool {
+            const auto* constructor = context.scopes->getResolvedSymbol(cp.id);
+            if (constructor == nullptr ||
+                constructor->kind != semantics::SymbolKind::Constructor) {
+              throw std::runtime_error(
+                  "Constructor pattern has no semantic binding");
+            }
             const auto* boxed = std::get_if<Box<ConstructedValue>>(&value);
-            if (boxed == nullptr || (*boxed)->name != cp.name) {
+            if (boxed == nullptr || (*boxed)->name != constructor->name) {
               return false;
             }
             const auto& fields = (*boxed)->fields;
             if (fields.size() != cp.arguments.size()) {
               return false;
             }
-            for (std::size_t i = 0; i < cp.arguments.size(); ++i) {
-              env[cp.arguments[i]] = fields[i];
+            if (fields.empty()) {
+              return true;
+            }
+            const auto scope_id = context.scopes->getScopeId(cp.id);
+            if (!scope_id.has_value()) {
+              throw std::runtime_error(
+                  "Constructor pattern has invalid bindings");
+            }
+            for (const auto& [argument, field] :
+                 std::views::zip(cp.arguments, fields)) {
+              const auto* binding =
+                  context.scopes->getLocalSymbol(*scope_id, argument);
+              if (binding == nullptr ||
+                  binding->kind != semantics::SymbolKind::PatternVariable) {
+                throw std::runtime_error(
+                    "Constructor pattern has invalid bindings");
+              }
+              env[binding->id] = field;
             }
             return true;
           },
@@ -92,51 +141,56 @@ bool matchPattern(const ast::Pattern& pattern, const Value& value,
 
 template <typename Op>
 int applyBinaryOp(int left, int right) {
-  if constexpr (std::same_as<Op, ast::Addition>) {
-    return left + right;
-  } else if constexpr (std::same_as<Op, ast::Subtraction>) {
-    return left - right;
-  } else if constexpr (std::same_as<Op, ast::Multiplication>) {
-    return left * right;
-  } else if constexpr (std::same_as<Op, ast::Division>) {
-    if (right == 0) {
-      throw std::runtime_error("Division by zero");
-    }
-    return left / right;
+  switch (ast::kindOf<Op>()) {
+    case ast::BinaryOperatorKind::Addition:
+      return left + right;
+    case ast::BinaryOperatorKind::Subtraction:
+      return left - right;
+    case ast::BinaryOperatorKind::Multiplication:
+      return left * right;
+    case ast::BinaryOperatorKind::Division:
+      if (right == 0) {
+        throw std::runtime_error("Division by zero");
+      }
+      return left / right;
   }
+  std::unreachable();
 }
 
 EvalResult evaluate(const ast::Expression& expression, const Environment& env,
-                    const ConstructorRegistry& registry) {
+                    const EvaluationContext& context) {
   return std::visit(
       util::overloaded{
           [](const ast::IntLiteral& lit) -> EvalResult {
             return Value{lit.value};
           },
           [&](const ast::Variable& var) -> EvalResult {
-            if (registry.isConstructor(var.name)) {
-              auto arity = registry.arity(var.name);
-              if (arity == 0) {
-                return Value{ConstructedValue{var.name, {}}};
-              }
-              return PartialConstructor{var.name, arity, {}};
-            }
-            auto it = env.find(var.name);
-            if (it == env.end()) {
+            const auto* symbol = context.scopes->getResolvedSymbol(var.id);
+            if (symbol == nullptr) {
               throw std::runtime_error("Undefined variable: " + var.name);
+            }
+            if (symbol->kind == semantics::SymbolKind::Constructor) {
+              const auto arity = constructorArity(*symbol, *context.types);
+              if (arity == 0) {
+                return Value{ConstructedValue{symbol->name, {}}};
+              }
+              return PartialConstructor{symbol->name, arity, {}};
+            }
+            auto it = env.find(symbol->id);
+            if (it == env.end()) {
+              throw std::runtime_error("Unbound local variable: " + var.name);
             }
             return Value{it->second};
           },
           [&]<ast::IsBinaryOperator Op>(const Op& op) -> EvalResult {
-            int left =
-                asInt(asValue(evaluate(*op.left_operand, env, registry)));
+            int left = asInt(asValue(evaluate(*op.left_operand, env, context)));
             int right =
-                asInt(asValue(evaluate(*op.right_operand, env, registry)));
+                asInt(asValue(evaluate(*op.right_operand, env, context)));
             return Value{applyBinaryOp<Op>(left, right)};
           },
           [&](const ast::Application& app) -> EvalResult {
-            auto func = evaluate(*app.function, env, registry);
-            auto arg = asValue(evaluate(*app.argument, env, registry));
+            auto func = evaluate(*app.function, env, context);
+            auto arg = asValue(evaluate(*app.argument, env, context));
 
             auto* partial = std::get_if<PartialConstructor>(&func);
             if (partial == nullptr) {
@@ -152,11 +206,12 @@ EvalResult evaluate(const ast::Expression& expression, const Environment& env,
             return std::move(*partial);
           },
           [&](const ast::CaseExpression& ce) -> EvalResult {
-            auto scrutinee = asValue(evaluate(*ce.scrutinee, env, registry));
+            auto scrutinee = asValue(evaluate(*ce.scrutinee, env, context));
             for (const auto& branch : ce.branches) {
               Environment branch_env = env;
-              if (matchPattern(branch.pattern, scrutinee, branch_env)) {
-                return evaluate(*branch.body, branch_env, registry);
+              if (matchPattern(branch.pattern, scrutinee, branch_env,
+                               context)) {
+                return evaluate(*branch.body, branch_env, context);
               }
             }
             throw std::runtime_error("No matching branch in case expression");
@@ -167,49 +222,42 @@ EvalResult evaluate(const ast::Expression& expression, const Environment& env,
 
 }  // namespace
 
-std::ostream& operator<<(std::ostream& os, const Value& value) {
-  std::visit(util::overloaded{
-                 [&](int n) { os << n; },
-                 [&](const Box<ConstructedValue>& cv) {
-                   if (cv->fields.empty()) {
-                     os << cv->name;
-                   } else {
-                     os << '(' << cv->name;
-                     for (const auto& field : cv->fields) {
-                       os << ' ' << field;
-                     }
-                     os << ')';
-                   }
-                 },
-             },
-             value);
-  return os;
+Value interpret(const parsing::ParsedProgram& parsed) {
+  auto analysis = semantics::analyze(parsed);
+  return interpret(parsed, analysis);
 }
 
-Value interpret(const ast::Program& program) {
-  ConstructorRegistry registry;
-  const ast::FunctionDefinition* main_fn = nullptr;
-
-  for (const auto& def : program.definitions) {
-    std::visit(util::overloaded{
-                   [&](const ast::FunctionDefinition& fd) {
-                     if (fd.name == "main") {
-                       main_fn = &fd;
-                     }
-                   },
-                   [&](const ast::DataTypeDefinition& dt) {
-                     registry.registerDataType(dt);
-                   },
-               },
-               def);
+Value interpret(const parsing::ParsedProgram& parsed,
+                const semantics::AnalysisResult& analysis) {
+  if (!analysis.ok()) {
+    throw std::runtime_error(
+        semantics::formatDiagnostic(parsed, analysis.diagnostics.front()));
   }
 
-  if (main_fn == nullptr) {
+  const auto type_analysis = semantics::analyzeTypes(parsed, analysis);
+  if (!type_analysis.ok()) {
+    throw std::runtime_error(
+        semantics::formatDiagnostic(parsed, type_analysis.diagnostics.front()));
+  }
+
+  const auto* main_symbol = analysis.scopes.getLocalSymbol(
+      semantics::ScopeTree::getRootScopeId(), "main");
+  if (main_symbol == nullptr ||
+      main_symbol->kind != semantics::SymbolKind::Function) {
     throw std::runtime_error("No 'main' function defined");
   }
 
+  const auto* main_fn = findFunctionById(parsed.ast, main_symbol->declaration);
+  if (main_fn == nullptr) {
+    throw std::runtime_error("Main function declaration is missing");
+  }
+
   Environment env;
-  return asValue(evaluate(*main_fn->body, env, registry));
+  return asValue(evaluate(*main_fn->body, env,
+                          EvaluationContext{
+                              .scopes = &analysis.scopes,
+                              .types = &type_analysis.types,
+                          }));
 }
 
 }  // namespace visitors

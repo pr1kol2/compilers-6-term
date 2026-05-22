@@ -1,5 +1,6 @@
 #include "tokenization/tokenize.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <format>
@@ -12,19 +13,19 @@
 namespace tokenization {
 
 bool isAlpha(char character) {
-  return static_cast<bool>(std::isalpha(character));
+  return static_cast<bool>(std::isalpha(static_cast<unsigned char>(character)));
 }
 
 bool isDigit(char character) {
-  return static_cast<bool>(std::isdigit(character));
+  return static_cast<bool>(std::isdigit(static_cast<unsigned char>(character)));
 }
 
 bool isLower(char character) {
-  return static_cast<bool>(std::islower(character));
+  return static_cast<bool>(std::islower(static_cast<unsigned char>(character)));
 }
 
 bool isSpace(char character) {
-  return static_cast<bool>(std::isspace(character));
+  return static_cast<bool>(std::isspace(static_cast<unsigned char>(character)));
 }
 
 struct KeywordEntry {
@@ -32,7 +33,7 @@ struct KeywordEntry {
   TokenVariant token;
 };
 
-const std::array kKeywords = {
+constexpr std::array kKeywords = {
     KeywordEntry{"defn", Function{}}, KeywordEntry{"data", Data{}},
     KeywordEntry{"case", Case{}}, KeywordEntry{"of", Of{}}};
 
@@ -84,7 +85,8 @@ class Scanner {
 
   std::vector<Token> tokens_;
   SVIterator it_;
-  const SVIterator end_;  // NOLINT
+  // NOLINTNEXTLINE (cppcoreguidelines-avoid-const-or-ref-data-members)
+  const SVIterator end_;
   util::Position pos_ = {
       .begin_line = 1, .begin_column = 1, .end_line = 1, .end_column = 1};
 
@@ -136,11 +138,11 @@ class Scanner {
     }
     std::string_view word{start, it_};
 
-    for (const auto& [text, token] : kKeywords) {
-      if (word == text) {
-        emit(token);
-        return;
-      }
+    const auto* const keyword =
+        std::ranges::find(kKeywords, word, &KeywordEntry::keyword);
+    if (keyword != kKeywords.end()) {
+      emit(keyword->token);
+      return;
     }
 
     if (is_lower) {

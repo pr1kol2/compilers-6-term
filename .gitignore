@@ -4,4 +4,5 @@ bin
 build
 compile_commands.json
 lib
+reference
 TODO.md
