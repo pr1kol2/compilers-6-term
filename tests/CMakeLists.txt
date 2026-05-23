@@ -34,6 +34,13 @@ list(REMOVE_DUPLICATES UNIT_TEST_MODULE_TARGETS)
 
 add_executable(unit_tests ${TEST_SOURCES})
 target_link_libraries(unit_tests PRIVATE GTest::gtest_main ${UNIT_TEST_MODULE_TARGETS})
+add_dependencies(unit_tests mfcc)
+target_compile_definitions(
+  unit_tests
+  PRIVATE
+    MF_TEST_CLANG_PATH="${LLVM_TOOLS_BINARY_DIR}/clang"
+    MF_TEST_MFCC_PATH="$<TARGET_FILE:mfcc>"
+)
 
 gtest_discover_tests(
   unit_tests
