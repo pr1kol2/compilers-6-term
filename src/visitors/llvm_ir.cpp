@@ -81,13 +81,8 @@ struct TargetConfiguration {
   std::unique_ptr<llvm::TargetMachine> machine;
 };
 
-#if LLVM_VERSION_MAJOR >= 22
-using LlvmCodeGenOptLevel = llvm::CodeGenOptLevel;
-inline constexpr auto kLlvmObjectFileType = llvm::CodeGenFileType::ObjectFile;
-#else
-using LlvmCodeGenOptLevel = llvm::CodeGenOpt::Level;
-inline constexpr auto kLlvmObjectFileType = llvm::CGFT_ObjectFile;
-#endif
+inline constexpr auto kLlvmObjectFileType =
+    static_cast<llvm::CodeGenFileType>(1);
 
 [[nodiscard]] std::string mangle(const semantics::Symbol& symbol) {
   return std::format("mf.{}.{}", symbol.id, symbol.name);
@@ -125,35 +120,19 @@ void initializeLlvmTargets() {
   });
 }
 
-[[nodiscard]] LlvmCodeGenOptLevel codeGenOptimizationLevel(
+[[nodiscard]] auto codeGenOptimizationLevel(
     LlvmOptimizationLevel optimization) {
   switch (optimization) {
     case LlvmOptimizationLevel::O0:
-#if LLVM_VERSION_MAJOR >= 22
-      return llvm::CodeGenOptLevel::None;
-#else
-      return llvm::CodeGenOpt::None;
-#endif
+      return *llvm::CodeGenOpt::getLevel(0);
     case LlvmOptimizationLevel::O1:
-#if LLVM_VERSION_MAJOR >= 22
-      return llvm::CodeGenOptLevel::Less;
-#else
-      return llvm::CodeGenOpt::Less;
-#endif
+      return *llvm::CodeGenOpt::getLevel(1);
     case LlvmOptimizationLevel::O2:
-#if LLVM_VERSION_MAJOR >= 22
-      return llvm::CodeGenOptLevel::Default;
-#else
-      return llvm::CodeGenOpt::Default;
-#endif
+      return *llvm::CodeGenOpt::getLevel(2);
     case LlvmOptimizationLevel::O3:
-#if LLVM_VERSION_MAJOR >= 22
-      return llvm::CodeGenOptLevel::Aggressive;
-#else
-      return llvm::CodeGenOpt::Aggressive;
-#endif
+      return *llvm::CodeGenOpt::getLevel(3);
   }
-  return codeGenOptimizationLevel(LlvmOptimizationLevel::O0);
+  return *llvm::CodeGenOpt::getLevel(0);
 }
 
 [[nodiscard]] llvm::OptimizationLevel passOptimizationLevel(
