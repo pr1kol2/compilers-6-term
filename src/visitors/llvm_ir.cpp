@@ -8,6 +8,7 @@
 #include <fstream>
 #include <llvm/Analysis/CGSCCPassManager.h>
 #include <llvm/Analysis/LoopAnalysisManager.h>
+#include <llvm/Config/llvm-config.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
@@ -66,6 +67,7 @@ struct TypedValue {
 struct ConstructorLayout {
   semantics::SymbolId data_type = semantics::kInvalidSymbolId;
   std::size_t tag = 0;
+  // TODO возможно стоит не дублировать данные, а обращаться к таблице типов
   std::vector<semantics::Type> fields;
 };
 
@@ -78,6 +80,14 @@ struct TargetConfiguration {
   std::string triple;
   std::unique_ptr<llvm::TargetMachine> machine;
 };
+
+#if LLVM_VERSION_MAJOR >= 22
+using LlvmCodeGenOptLevel = llvm::CodeGenOptLevel;
+inline constexpr auto kLlvmObjectFileType = llvm::CodeGenFileType::ObjectFile;
+#else
+using LlvmCodeGenOptLevel = llvm::CodeGenOpt::Level;
+inline constexpr auto kLlvmObjectFileType = llvm::CGFT_ObjectFile;
+#endif
 
 [[nodiscard]] std::string mangle(const semantics::Symbol& symbol) {
   return std::format("mf.{}.{}", symbol.id, symbol.name);
@@ -115,18 +125,35 @@ void initializeLlvmTargets() {
   });
 }
 
-[[nodiscard]] llvm::CodeGenOptLevel codeGenOptimizationLevel(
+[[nodiscard]] LlvmCodeGenOptLevel codeGenOptimizationLevel(
     LlvmOptimizationLevel optimization) {
   switch (optimization) {
     case LlvmOptimizationLevel::O0:
+#if LLVM_VERSION_MAJOR >= 22
       return llvm::CodeGenOptLevel::None;
+#else
+      return llvm::CodeGenOpt::None;
+#endif
     case LlvmOptimizationLevel::O1:
+#if LLVM_VERSION_MAJOR >= 22
       return llvm::CodeGenOptLevel::Less;
+#else
+      return llvm::CodeGenOpt::Less;
+#endif
     case LlvmOptimizationLevel::O2:
+#if LLVM_VERSION_MAJOR >= 22
       return llvm::CodeGenOptLevel::Default;
+#else
+      return llvm::CodeGenOpt::Default;
+#endif
     case LlvmOptimizationLevel::O3:
+#if LLVM_VERSION_MAJOR >= 22
       return llvm::CodeGenOptLevel::Aggressive;
+#else
+      return llvm::CodeGenOpt::Aggressive;
+#endif
   }
+  return codeGenOptimizationLevel(LlvmOptimizationLevel::O0);
 }
 
 [[nodiscard]] llvm::OptimizationLevel passOptimizationLevel(
@@ -141,6 +168,7 @@ void initializeLlvmTargets() {
     case LlvmOptimizationLevel::O3:
       return llvm::OptimizationLevel::O3;
   }
+  return llvm::OptimizationLevel::O0;
 }
 
 [[nodiscard]] TargetConfiguration createTargetConfiguration(
@@ -150,19 +178,30 @@ void initializeLlvmTargets() {
   auto triple = options.target_triple.empty()
                     ? llvm::sys::getDefaultTargetTriple()
                     : options.target_triple;
-  const auto llvm_triple = llvm::Triple{triple};
   std::string error;
+#if LLVM_VERSION_MAJOR >= 22
+  const auto llvm_triple = llvm::Triple{triple};
   const auto* target = llvm::TargetRegistry::lookupTarget(llvm_triple, error);
+#else
+  const auto* target = llvm::TargetRegistry::lookupTarget(triple, error);
+#endif
   if (target == nullptr) {
     throw std::runtime_error(
         std::format("Cannot find LLVM target '{}': {}", triple, error));
   }
 
   llvm::TargetOptions target_options;
+#if LLVM_VERSION_MAJOR >= 22
   auto machine =
       std::unique_ptr<llvm::TargetMachine>(target->createTargetMachine(
           llvm_triple, "generic", "", target_options, std::nullopt,
           std::nullopt, codeGenOptimizationLevel(options.optimization)));
+#else
+  auto machine =
+      std::unique_ptr<llvm::TargetMachine>(target->createTargetMachine(
+          triple, "generic", "", target_options, std::nullopt, std::nullopt,
+          codeGenOptimizationLevel(options.optimization)));
+#endif
   if (machine == nullptr) {
     throw std::runtime_error(
         std::format("Cannot create LLVM target machine for '{}'", triple));
@@ -187,7 +226,11 @@ class LlvmIrGenerator {
         builder_(context_),
         node_type_(llvm::StructType::create(context_, "mf.node")) {
     if (!options.target_triple.empty()) {
+#if LLVM_VERSION_MAJOR >= 22
       module_->setTargetTriple(llvm::Triple{options.target_triple});
+#else
+      module_->setTargetTriple(options.target_triple);
+#endif
     }
     if (!options.data_layout.empty()) {
       module_->setDataLayout(options.data_layout);
@@ -218,6 +261,7 @@ class LlvmIrGenerator {
     verify();
   }
 
+  // TODO заменить на ссылки ?
   const parsing::ParsedProgram* parsed_;
   const semantics::AnalysisResult* analysis_;
   const semantics::TypeAnalysisResult* type_analysis_;
@@ -331,6 +375,7 @@ class LlvmIrGenerator {
     }
   }
 
+  // TODO освобождать память через free как-нибудь потом
   void declareRuntime() {
     malloc_ = module_->getOrInsertFunction(
         "malloc", llvm::FunctionType::get(ptrTy(), {i64Ty()}, false));
@@ -750,6 +795,7 @@ class LlvmIrGenerator {
 
     builder_.SetInsertPoint(merge_block);
     auto result = incoming.front().first;
+    // TODO использовать передачу переменных через память вместо phi-инструкций
     auto* phi = builder_.CreatePHI(llvmType(result.type), incoming.size(),
                                    "case.result");
     for (const auto& [typed_value, block] : incoming) {
@@ -982,7 +1028,7 @@ class LlvmIrGenerator {
 
     llvm::legacy::PassManager pass_manager;
     if (target_machine.addPassesToEmitFile(pass_manager, destination, nullptr,
-                                           llvm::CodeGenFileType::ObjectFile)) {
+                                           kLlvmObjectFileType)) {
       throw std::runtime_error("LLVM target machine cannot emit object files");
     }
 
@@ -1043,6 +1089,7 @@ analyzeOrThrow(const parsing::ParsedProgram& parsed) {
 
 }  // namespace
 
+// TODO семантический анализ отдельно, передавать пару таблиц в ллвм ир
 std::string generateLlvmIr(const parsing::ParsedProgram& parsed,
                            const LlvmIrOptions& options) {
   const auto [analysis, type_analysis] = analyzeOrThrow(parsed);
