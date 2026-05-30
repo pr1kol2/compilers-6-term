@@ -173,13 +173,13 @@ void initializeLlvmTargets() {
 #if LLVM_VERSION_MAJOR >= 22
   auto machine =
       std::unique_ptr<llvm::TargetMachine>(target->createTargetMachine(
-          llvm_triple, "generic", "", target_options, std::nullopt,
+          llvm_triple, "generic", "", target_options, llvm::Reloc::PIC_,
           std::nullopt, codeGenOptimizationLevel(options.optimization)));
 #else
   auto machine =
       std::unique_ptr<llvm::TargetMachine>(target->createTargetMachine(
-          triple, "generic", "", target_options, std::nullopt, std::nullopt,
-          codeGenOptimizationLevel(options.optimization)));
+          triple, "generic", "", target_options, llvm::Reloc::PIC_,
+          std::nullopt, codeGenOptimizationLevel(options.optimization)));
 #endif
   if (machine == nullptr) {
     throw std::runtime_error(
